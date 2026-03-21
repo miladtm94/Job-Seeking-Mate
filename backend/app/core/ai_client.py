@@ -2,6 +2,7 @@ import logging
 from functools import lru_cache
 
 import anthropic
+from anthropic.types import TextBlock
 
 from app.core.config import get_settings
 
@@ -28,4 +29,5 @@ def ai_complete(system: str, prompt: str, max_tokens: int = 2048) -> str | None:
         system=system,
         messages=[{"role": "user", "content": prompt}],
     )
-    return response.content[0].text
+    block = response.content[0]
+    return block.text if isinstance(block, TextBlock) else None

@@ -48,12 +48,12 @@ class JobDiscoveryService:
         country = "au"  # default to Australia
         location = payload.locations[0] if payload.locations else ""
 
-        params = {
+        params: dict[str, str] = {
             "app_id": settings.adzuna_app_id,
             "app_key": settings.adzuna_api_key,
             "what": payload.query,
             "where": location,
-            "results_per_page": min(payload.max_results, 50),
+            "results_per_page": str(min(payload.max_results, 50)),
             "content-type": "application/json",
         }
         if payload.salary_min:
