@@ -1,0 +1,64 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+.eggs/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+*.prof
+
+# Alembic
+# (keep alembic.ini and migrations tracked; only ignore generated pycache)
+
+# Node
+node_modules/
+dist/
+coverage/
+.cache/
+*.tsbuildinfo
+
+# Environment — never commit secrets
+.env
+.env.*
+.env.local
+.env.*.local
+!.env.example
+
+# IDE / OS
+.DS_Store
+.DS_Store?
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/
+
+# Build artifacts
+build/
+*.whl
+*.tar.gz
+
+# Docker volumes (if mounted locally)
+pg_data/
+
+# Secrets and credentials
+*.pem
+*.key
+*.p12
+secrets/
