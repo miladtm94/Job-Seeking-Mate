@@ -43,6 +43,8 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B"]
+# B008: Depends() in default args is the canonical FastAPI dependency injection pattern
+ignore = ["B008"]
 
 [tool.mypy]
 python_version = "3.11"
