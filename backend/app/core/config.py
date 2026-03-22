@@ -16,13 +16,21 @@ class Settings(BaseSettings):
 
     cors_origins: list[str] = ["http://localhost:5173"]
 
-    # AI provider
+    # AI provider — set ai_provider to "ollama", "openai", or "anthropic"
+    ai_provider: str = "ollama"
+    ai_model: str = "llama3.2"
+    ollama_base_url: str = "http://localhost:11434"
     anthropic_api_key: str = ""
-    ai_model: str = "claude-sonnet-4-20250514"
+    openai_api_key: str = ""
+
+    # Local dev — path to a PDF resume to auto-ingest on first startup
+    default_resume_pdf: str = ""
 
     # Job search providers
     adzuna_app_id: str = ""
     adzuna_api_key: str = ""
+    adzuna_country: str = "au"  # au | us | gb | ca | de | fr | in | nz | sg
+    jsearch_api_key: str = ""  # RapidAPI key — aggregates Indeed, LinkedIn, Glassdoor
 
     # Application settings
     auto_apply_threshold: int = 75

@@ -7,7 +7,7 @@ export function DashboardPage() {
   const stats = useQuery({ queryKey: ["app-stats"], queryFn: () => fetchApplicationStats() });
   const candidates = useQuery({ queryKey: ["candidates"], queryFn: fetchCandidates });
 
-  const profile: CandidateProfile | undefined = candidates.data?.[0];
+  const profile: CandidateProfile | undefined = candidates.data?.at(-1);
 
   return (
     <div className="page">

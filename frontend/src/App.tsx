@@ -5,13 +5,18 @@ import { DashboardPage } from "./features/dashboard/DashboardPage";
 import { JobsPage } from "./features/jobs/JobsPage";
 import { ProfilePage } from "./features/profile/ProfilePage";
 import { PipelinePage } from "./features/pipeline/PipelinePage";
+import { LogApplicationPage } from "./features/tracker/LogApplicationPage";
+import { MyApplicationsPage } from "./features/tracker/MyApplicationsPage";
+import { AnalyticsPage } from "./features/analytics/AnalyticsPage";
 
 const NAV_ITEMS = [
   { to: "/", label: "Dashboard" },
   { to: "/profile", label: "Profile" },
   { to: "/jobs", label: "Job Search" },
-  { to: "/applications", label: "Applications" },
-  { to: "/pipeline", label: "Full Pipeline" },
+  { to: "/log-application", label: "Log Application" },
+  { to: "/my-applications", label: "My Applications" },
+  { to: "/analytics", label: "Analytics" },
+  { to: "/pipeline", label: "Pipeline" },
 ];
 
 export function App() {
@@ -39,6 +44,9 @@ export function App() {
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/jobs" element={<JobsPage />} />
           <Route path="/applications" element={<ApplicationsPage />} />
+          <Route path="/log-application" element={<LogApplicationPage />} />
+          <Route path="/my-applications" element={<MyApplicationsPage />} />
+          <Route path="/analytics" element={<AnalyticsPage />} />
           <Route path="/pipeline" element={<PipelinePage />} />
         </Routes>
       </main>

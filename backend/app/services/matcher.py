@@ -18,7 +18,7 @@ SENIORITY_LEVELS = {"junior": 1, "mid": 2, "senior": 3, "staff": 4, "principal":
 class MatchingService:
     """Multi-dimensional scoring with AI-powered explanations."""
 
-    def score(self, payload: MatchScoreRequest) -> MatchScoreResponse:
+    def score(self, payload: MatchScoreRequest, fast: bool = False) -> MatchScoreResponse:
         candidate_skills = {skill.lower() for skill in payload.candidate.skills}
         required = {skill.lower() for skill in payload.job.required_skills}
         preferred = {skill.lower() for skill in payload.job.preferred_skills}
@@ -63,15 +63,18 @@ class MatchingService:
         fit_reasons = self._generate_fit_reasons(payload, key_matching, location_match)
         improvement_suggestions = self._generate_improvements(missing, payload)
 
-        # Try AI explanation, fall back to heuristic
-        explanation = self._ai_explanation(payload, match_score, key_matching, missing)
-        if not explanation:
-            explanation = (
-                f"Matched {len(key_matching)}/{len(required)} required skills. "
-                f"{len(missing)} gaps identified. "
-                f"Experience ({payload.candidate.years_experience}yr) and location "
-                f"{'match' if location_match else 'mismatch'} adjusted score to {match_score}."
-            )
+        heuristic_explanation = (
+            f"Matched {len(key_matching)}/{max(len(required), 1)} required skills. "
+            f"{len(missing)} gaps identified. "
+            f"Experience ({payload.candidate.years_experience}yr) and location "
+            f"{'match' if location_match else 'mismatch'} adjusted score to {match_score}."
+        )
+        # Skip AI in fast mode (batch scoring); use AI only for single-job detail
+        if fast:
+            explanation = heuristic_explanation
+        else:
+            explanation = self._ai_explanation(payload, match_score, key_matching, missing) \
+                or heuristic_explanation
 
         return MatchScoreResponse(
             job_id=payload.job.job_id,
@@ -91,7 +94,7 @@ class MatchingService:
         rejected = 0
         for job in payload.jobs:
             req = MatchScoreRequest(candidate=payload.candidate, job=job)
-            result = self.score(req)
+            result = self.score(req, fast=True)
             if result.match_score >= 40:  # include even low-scores for visibility
                 results.append(result)
             else:

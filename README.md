@@ -1,24 +1,27 @@
 # Job-Seeking Mate
 
-An autonomous, AI-powered job search and application system. It operates as a goal-driven agent pipeline — parsing your CV, discovering relevant jobs, scoring candidate-job fit with explainable reasoning, generating tailored application materials, and tracking your entire job search in one place.
+An AI-powered **Job Application Tracking System (JATS)** combined with a smart job search agent. It helps you log, track, and analyse every job application — and optionally automates the search, scoring, and application-material generation pipeline.
 
 ---
 
 ## What It Does
 
-The system runs a continuous Plan → Act → Evaluate → Refine loop across seven specialized agents:
+### Job Application Tracker (JATS)
+The core daily-use feature. For every job you apply to:
 
-| Agent | Responsibility |
-|---|---|
-| CV Intelligence | Extracts skills, domains, seniority, strengths, and gaps from raw CV text |
-| Job Discovery | Searches multiple job boards, deduplicates, and normalizes listings |
-| Matching & Scoring | Scores fit across 5 dimensions with explainable reasoning |
-| Resume Tailoring | Rewrites resume sections to align with each job's requirements |
-| Cover Letter | Generates personalized, role-specific cover letters |
-| Application Automation | Packages artifacts and enforces human approval before submission |
-| Tracking & Analytics | Manages application lifecycle with status transitions and metrics |
+1. **Paste the job description** → AI extracts company, role, salary, skills, industry, location, and work type automatically
+2. **Review / edit** the pre-filled form, then save
+3. **Track** each application through its lifecycle (Applied → Interview → Offer / Rejected)
+4. **Add timeline events** (phone screen, interview dates, rejection, offer date) with notes
+5. **Analytics dashboard** — conversion rates, skill frequency, salary distribution, platform breakdown, weekly activity charts
 
-**Hard rule**: the system never applies to a job without explicit user approval.
+### AI Job Search Pipeline (optional)
+Runs a full Plan → Act → Evaluate loop:
+- Parses your CV (PDF or text paste) into a structured profile
+- Searches Adzuna / JSearch / Indeed for matching roles
+- Scores every job across 5 dimensions with explainable reasoning
+- Generates tailored resumes, cover letters, and talking points
+- **Hard rule: never applies without explicit user approval**
 
 ---
 
@@ -27,13 +30,12 @@ The system runs a continuous Plan → Act → Evaluate → Refine loop across se
 | Layer | Technology |
 |---|---|
 | Backend API | FastAPI + Pydantic v2 |
-| AI Engine | Anthropic API (graceful heuristic fallback when key not set) |
-| Job Sources | Adzuna API (extensible to LinkedIn, Indeed, Seek) |
-| Database | PostgreSQL via SQLAlchemy 2.x + Alembic migrations |
-| Cache / Queue | Redis + Celery-compatible worker layer |
+| Application DB | SQLite (JATS tracker — zero-config, file-based) |
+| AI Engine | Anthropic / OpenAI / Ollama (graceful fallback to heuristics) |
+| Job Sources | Adzuna API · JSearch/RapidAPI (aggregates Indeed, LinkedIn, Glassdoor) |
+| Infrastructure DB | PostgreSQL via SQLAlchemy 2.x (optional, used by agent pipeline) |
 | Frontend | React 19 + TypeScript + Vite + TanStack Query + React Router |
-| Containerization | Docker Compose (API + worker + frontend + Postgres + Redis) |
-| CI | GitHub Actions (lint, type-check, test, build) |
+| Containerisation | Docker Compose (API + worker + frontend + Postgres + Redis) |
 
 ---
 
@@ -42,29 +44,77 @@ The system runs a continuous Plan → Act → Evaluate → Refine loop across se
 ```text
 Job-Seeking-Mate/
 ├── backend/
-│   ├── app/
-│   │   ├── agents/          # Base agent loop + specialists + orchestrator
-│   │   ├── api/v1/          # REST endpoints (candidates, jobs, matching, applications, orchestrator)
-│   │   ├── core/            # Config, logging, AI client
-│   │   ├── db/              # SQLAlchemy models, session, Alembic migrations
-│   │   ├── domain/          # Domain dataclasses (candidate, job, application, match)
-│   │   ├── repositories/    # Data access layer
-│   │   ├── schemas/         # Pydantic request/response schemas
-│   │   ├── services/        # Business logic (cv_parser, matcher, job_discovery, tracker…)
-│   │   └── workers/         # Background task entrypoints
-│   ├── tests/               # pytest test suite (29 tests)
-│   ├── alembic.ini
-│   └── pyproject.toml
+│   └── app/
+│       ├── api/v1/endpoints/   # REST endpoints
+│       │   ├── candidates.py   # CV ingestion
+│       │   ├── jobs.py         # Job search + smart search
+│       │   ├── matching.py     # Candidate–job scoring
+│       │   ├── applications.py # Application generation (AI pipeline)
+│       │   ├── jats.py         # JATS tracker CRUD + NLP extract
+│       │   ├── analytics.py    # Analytics aggregations
+│       │   └── orchestrator.py # Full pipeline orchestrator
+│       ├── core/               # Config, logging, AI client (Ollama/OpenAI/Anthropic)
+│       ├── db/
+│       │   ├── jats_db.py      # SQLite engine → data/jats.db
+│       │   ├── jats_models.py  # ORM: applications, skills, materials, events
+│       │   ├── models.py       # PostgreSQL models (agent pipeline)
+│       │   └── migrations/     # Alembic migration scripts
+│       ├── schemas/
+│       │   ├── jats.py         # JATS request/response schemas
+│       │   ├── job.py          # Job search schemas
+│       │   ├── candidate.py    # Candidate profile schemas
+│       │   └── application.py  # Application generation schemas
+│       └── services/
+│           ├── jats_service.py       # JATS CRUD + NLP extraction pipeline
+│           ├── analytics_service.py  # Analytics queries
+│           ├── cv_parser.py          # CV → structured profile
+│           ├── matcher.py            # Multi-dimensional job scoring
+│           └── job_discovery.py      # Multi-source job search
 ├── frontend/
 │   └── src/
-│       ├── api/             # Typed API client
-│       └── features/        # Dashboard, Profile, Jobs, Applications, Pipeline pages
-├── infra/docker/            # Backend and frontend Dockerfiles
-├── docs/                    # Architecture, module specs, roadmap, API spec
-├── scripts/                 # Developer bootstrap
-├── .github/workflows/       # CI pipeline
-├── docker-compose.yml
-└── Makefile
+│       ├── api/client.ts             # Typed API client
+│       └── features/
+│           ├── dashboard/            # Overview + metrics
+│           ├── profile/              # CV upload + profile display
+│           ├── jobs/                 # Smart job search + application generator
+│           ├── tracker/              # Log Application + My Applications pages
+│           ├── analytics/            # Charts + insights dashboard
+│           └── pipeline/             # Full pipeline orchestrator UI
+├── data/                             # Runtime data — gitignored, never committed
+│   ├── jats.db                       # SQLite: all your application records (auto-created)
+│   ├── profiles.json                 # Your parsed CV profile (auto-created)
+│   ├── logs/                         # JSON backup of every logged application
+│   ├── resumes/                      # Drop your PDF resumes here
+│   └── covers/                       # Drop cover letter drafts here
+├── docs/                             # Architecture, module specs, API spec, roadmap
+├── infra/docker/                     # Backend and frontend Dockerfiles
+├── .env.example                      # All configurable variables with defaults
+└── docker-compose.yml
+```
+
+---
+
+## Data Persistence
+
+> **Your application data is saved locally and survives restarts.**
+
+| What | Where | Backed up |
+|---|---|---|
+| All application records | `data/jats.db` (SQLite) | Yes — auto |
+| Your CV profile | `data/profiles.json` | Yes — auto |
+| Per-application JSON backup | `data/logs/jats_<id>.json` | Yes — auto |
+
+The SQLite database (`data/jats.db`) is created automatically the first time the backend starts. Every time you log an application through the UI or API, it is written to this file **immediately and permanently** — restarting the server does not lose any data.
+
+**None of these files are ever pushed to GitHub.** The `data/` folder is gitignored to protect your personal data. The `.gitkeep` placeholder files in each subdirectory simply ensure the folder structure exists when you clone a fresh copy.
+
+### Backing up your data
+```bash
+# Copy your database to a safe location
+cp data/jats.db ~/Backups/jats-$(date +%Y%m%d).db
+
+# Or export all applications as JSON
+curl -s http://localhost:8000/api/v1/jats/applications | python3 -m json.tool > my_applications.json
 ```
 
 ---
@@ -73,53 +123,50 @@ Job-Seeking-Mate/
 
 ### Prerequisites
 
-- Docker + Docker Compose, or
-- Python 3.11+ and Node.js 20+ (for local dev without Docker)
+- Python 3.11+ and Node.js 20+
 
-### 1. Configure environment
+### 1. Clone and configure
 
 ```bash
+git clone git@github.com:miladtm94/Job-Seeking-Mate.git
+cd Job-Seeking-Mate
 cp .env.example .env
 ```
 
-Open `.env` and set at minimum:
+Edit `.env` — set at minimum one AI provider:
 
 ```bash
-# Required for AI features (CV parsing, matching explanations, resume tailoring, cover letters)
-ANTHROPIC_API_KEY=your_key_here
+# Option A: Anthropic (recommended)
+AI_PROVIDER=anthropic
+ANTHROPIC_API_KEY=sk-ant-...
+AI_MODEL=claude-haiku-4-5-20251001   # cheapest, fast enough
 
-# Optional: real job search results via Adzuna (free tier available)
-ADZUNA_APP_ID=your_app_id
-ADZUNA_API_KEY=your_api_key
+# Option B: OpenAI
+AI_PROVIDER=openai
+OPENAI_API_KEY=sk-...
+AI_MODEL=gpt-4o-mini
+
+# Option C: Local Ollama (free, no API key)
+AI_PROVIDER=ollama
+OLLAMA_BASE_URL=http://localhost:11434
+AI_MODEL=llama3.2
 ```
 
-All AI features fall back to deterministic heuristics if no API key is set, so the system works out of the box.
+> All AI features fall back gracefully to heuristics if no provider is configured — you can use the tracker without any AI key.
 
-### 2. Run with Docker (recommended)
-
-```bash
-make up
-```
-
-| Service | URL |
-|---|---|
-| Frontend | http://localhost:5173 |
-| Backend API | http://localhost:8000 |
-| API Docs (Swagger) | http://localhost:8000/docs |
-
-### 3. Run locally without Docker
-
-Backend:
+### 2. Backend
 
 ```bash
 cd backend
 python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -e .[dev]
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+pip install -e .
 uvicorn app.main:app --reload --port 8000
 ```
 
-Frontend:
+The SQLite database is created automatically at `data/jats.db` on first start.
+
+### 3. Frontend
 
 ```bash
 cd frontend
@@ -127,183 +174,150 @@ npm install
 npm run dev
 ```
 
-Database migrations (requires running Postgres):
+Open **http://localhost:5173**
 
-```bash
-cd backend
-alembic upgrade head
-```
+---
+
+## Navigation
+
+| Page | URL | What it does |
+|---|---|---|
+| Dashboard | `/` | System status, profile summary, application metrics |
+| Profile | `/profile` | Upload PDF or paste CV text for AI parsing |
+| Job Search | `/jobs` | AI-powered smart search + application material generator |
+| **Log Application** | `/log-application` | Paste a job description → AI extracts fields → save to tracker |
+| **My Applications** | `/my-applications` | Full tracker: filter, update status, event timeline |
+| **Analytics** | `/analytics` | Charts: conversion rates, platform, skills, salary, timeline |
+| Pipeline | `/pipeline` | Full automated pipeline (parse → search → score → generate) |
 
 ---
 
 ## API Reference
 
-All endpoints are prefixed with `/api/v1`.
+All endpoints are prefixed with `/api/v1`. Interactive docs at **http://localhost:8000/docs**.
 
-### Health
+### JATS Tracker
+
 | Method | Path | Description |
 |---|---|---|
-| GET | `/health` | Service liveness check |
+| POST | `/jats/extract` | NLP-extract structured fields from a raw job description |
+| POST | `/jats/applications` | Log a new application with full metadata |
+| GET | `/jats/applications` | List applications (filter: `status`, `platform`, `industry`, `search`) |
+| GET | `/jats/applications/{id}` | Get full application detail including skills + events |
+| PATCH | `/jats/applications/{id}` | Update status, salary, notes, and other fields |
+| DELETE | `/jats/applications/{id}` | Delete an application record |
+| POST | `/jats/applications/{id}/events` | Add a timeline event (interview, rejection, offer…) |
+| GET | `/jats/applications/{id}/events` | Get all events for an application |
 
-### Candidates
+### Analytics
+
 | Method | Path | Description |
 |---|---|---|
-| POST | `/candidates/ingest` | Parse CV text, extract profile, store candidate |
-| GET | `/candidates/` | List all candidates |
-| GET | `/candidates/{id}` | Get candidate by ID |
+| GET | `/analytics/all` | Full analytics payload (single request — use this) |
+| GET | `/analytics/overview` | Total, conversion rates, funnel counts |
+| GET | `/analytics/platforms` | Applications by platform |
+| GET | `/analytics/industries` | Applications by industry |
+| GET | `/analytics/statuses` | Applications by status |
+| GET | `/analytics/timeline` | Applications per week/month |
+| GET | `/analytics/skills` | Most required skills frequency |
+| GET | `/analytics/salary` | Salary distribution and averages |
 
-### Jobs
+### Job Search & Matching
+
 | Method | Path | Description |
 |---|---|---|
 | POST | `/jobs/search` | Search jobs across configured providers |
-| GET | `/jobs/search` | Search jobs via query parameters |
-
-### Matching
-| Method | Path | Description |
-|---|---|---|
-| POST | `/matching/score` | Score a single candidate-job pair |
+| POST | `/jobs/smart-search` | Profile-driven search: auto-queries + scores every result |
+| POST | `/matching/score` | Score a single candidate–job pair |
 | POST | `/matching/batch` | Score a candidate against multiple jobs |
 
-### Applications
+### Candidates & Applications
+
 | Method | Path | Description |
 |---|---|---|
+| POST | `/candidates/ingest` | Parse CV text → structured profile |
+| POST | `/candidates/ingest-pdf` | Upload PDF resume → structured profile |
+| GET | `/candidates/` | List profiles |
 | POST | `/applications/generate` | Generate tailored resume + cover letter + talking points |
-| GET | `/applications/` | List applications (filterable by candidate, status) |
 | GET | `/applications/stats` | Interview rate, offer count, status breakdown |
-| GET | `/applications/{id}` | Get application record |
 | PATCH | `/applications/{id}/status` | Transition application status |
-
-### Orchestrator (Full Pipeline)
-| Method | Path | Description |
-|---|---|---|
-| POST | `/orchestrator/full-cycle` | End-to-end: parse CV → search → match → generate applications |
-| POST | `/orchestrator/search-match` | Search jobs and score matches (no application generation) |
-
----
-
-## Match Scoring
-
-Each job is scored across five dimensions:
-
-| Dimension | Weight | Description |
-|---|---|---|
-| Skill overlap | 50% | Required skills (40%) + preferred skills (10%) |
-| Experience | 15% | Years of experience normalized against job seniority |
-| Domain relevance | 15% | Candidate domain expertise vs. job description |
-| Location | 10% | Location preference match (remote counts as match) |
-| Seniority fit | 10% | Seniority level alignment between candidate and role |
-
-Recommendations: `strong_apply` (≥75) · `apply` (≥60) · `maybe` (≥45) · `skip` (<45)
-
-Each result includes a plain-language explanation, fit reasons, and improvement suggestions.
-
----
-
-## Agent Architecture
-
-Agents follow a **Plan → Act → Evaluate → Refine** loop:
-
-```
-AgentOrchestrator
-├── CVAgent              → parse CV, extract structured profile
-├── JobDiscoveryAgent    → search providers, deduplicate, normalize
-├── MatchingAgent        → score all jobs, extract skills from descriptions
-└── ApplicationAgent     → generate resume + cover letter + talking points
-```
-
-Each agent has:
-- A `plan()` step that defines subtasks and success criteria
-- An `act()` step that executes with retries
-- An `evaluate()` step that checks confidence against a threshold
-- A `refine()` step that adjusts the task payload before retrying
-
-The orchestrator tracks all steps, errors, and confidence values across the pipeline.
 
 ---
 
 ## Application Status Lifecycle
 
 ```
-saved → prepared → applied → interview → offer
-  ↓         ↓          ↓           ↓
-withdrawn withdrawn  rejected   rejected
+saved ──→ applied ──→ interview ──→ offer
+  │           │            │
+  └──→ withdrawn    rejected    rejected
 ```
 
-Invalid transitions raise a 400 error. Status updates are logged with optional notes.
+Status transitions are enforced — invalid moves return a 400 error. Every status change is automatically logged as a timeline event.
 
 ---
 
-## Development
+## Match Scoring
 
-```bash
-make test          # Run backend test suite (pytest)
-make lint          # Ruff + mypy + TypeScript type-check
-make format        # Auto-format backend code (ruff)
-make install       # Install all backend and frontend dependencies
-make migrate       # Apply database migrations
-make up            # Start full stack with Docker
-make down          # Stop and remove containers + volumes
-```
+Each job is scored across five dimensions (100-point scale):
 
-### Running tests
+| Dimension | Weight | How |
+|---|---|---|
+| Skill overlap | 50% | Required skills (40%) + preferred (10%) |
+| Experience | 15% | Years normalised against role seniority |
+| Domain relevance | 15% | Candidate domains vs. job description keywords |
+| Location | 10% | Location preference (remote = always match) |
+| Seniority fit | 10% | Level alignment |
 
-```bash
-cd backend
-source .venv/bin/activate
-pytest -q
-```
-
-29 tests covering services, agents, API endpoints, and status transitions.
+Recommendations: `strong_apply` (≥75) · `apply` (≥60) · `maybe` (≥45) · `skip` (<45)
 
 ---
 
 ## Configuration
 
-All settings are in `.env` (see `.env.example` for all options):
+All settings live in `.env`. See `.env.example` for the full list.
 
 | Variable | Default | Description |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | _(empty)_ | Anthropic API key for AI features |
-| `AI_MODEL` | `claude-sonnet-4-20250514` | Model used for all AI operations |
-| `ADZUNA_APP_ID` | _(empty)_ | Adzuna job search app ID |
-| `ADZUNA_API_KEY` | _(empty)_ | Adzuna job search API key |
-| `DATABASE_URL` | local postgres | PostgreSQL connection string |
-| `REDIS_URL` | local redis | Redis connection string |
-| `AUTO_APPLY_THRESHOLD` | `75` | Minimum score for auto mode (unused unless explicitly enabled) |
-| `MATCH_REJECT_THRESHOLD` | `60` | Below this score, jobs are filtered from results |
-| `MAX_JOBS_PER_SEARCH` | `50` | Maximum jobs fetched per search |
-
----
-
-## Design Principles
-
-- **Truthfulness first** — the system never fabricates qualifications or experience
-- **Human in the loop** — no job is applied to without explicit user confirmation
-- **Explainability** — every match score has a breakdown and plain-language explanation
-- **Graceful degradation** — all AI features have heuristic fallbacks; the system works without API keys
-- **Quality over volume** — precision targeting beats mass application
+| `AI_PROVIDER` | `ollama` | `anthropic` / `openai` / `ollama` |
+| `ANTHROPIC_API_KEY` | _(empty)_ | Required if using Anthropic |
+| `OPENAI_API_KEY` | _(empty)_ | Required if using OpenAI |
+| `AI_MODEL` | `llama3.2` | Model name for the selected provider |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server URL |
+| `ADZUNA_APP_ID` / `ADZUNA_API_KEY` | _(empty)_ | Real job results via Adzuna (free tier available) |
+| `JSEARCH_API_KEY` | _(empty)_ | RapidAPI key — aggregates Indeed, LinkedIn, Glassdoor |
+| `DATABASE_URL` | local postgres | Only needed for the agent pipeline (not JATS tracker) |
+| `AUTO_APPLY_THRESHOLD` | `75` | Minimum match score for auto-mode (pipeline only) |
 
 ---
 
 ## Roadmap
 
+- [x] Persistent, file-based application tracking (SQLite JATS database)
+- [x] NLP extraction from job descriptions
+- [x] Analytics dashboard with charts
+- [x] Manual application logging with event timeline
+- [x] JSON backup for every logged application
 - [ ] LinkedIn and Seek job source adapters
-- [ ] Playwright-based browser automation for form pre-fill
-- [ ] Persistent DB-backed application tracking (currently in-memory)
-- [ ] User authentication (JWT)
-- [ ] Email notification on status changes
+- [ ] Resume file management (upload + version tracking)
+- [ ] Email parsing for automatic status updates (interview invites, rejections)
+- [ ] Resume–job match scoring from within the tracker
 - [ ] Interview preparation question generator
-- [ ] Learning loop: adapt match weights from interview outcomes
+- [ ] Export applications to CSV / Google Sheets
+- [ ] User authentication (multi-user support)
 - [ ] Mobile-responsive UI polish
 
-See [docs/roadmap.md](./docs/roadmap.md) for detailed milestones.
+---
+
+## Design Principles
+
+- **Your data stays local** — application records never leave your machine unless you choose
+- **Human in the loop** — no job is applied to without explicit user confirmation
+- **Graceful degradation** — all AI features have heuristic fallbacks; tracker works without any API key
+- **Explainability** — every match score has a breakdown and plain-language explanation
+- **Zero-config storage** — SQLite, no database server required for the tracker
 
 ---
 
 ## License
 
 Apache License 2.0
-
-See [LICENSE](./LICENSE) for the full text.
-
-> **Why Apache 2.0?** It provides explicit patent protection, requires attribution in derivatives, and is the standard for serious open-source infrastructure projects. Unlike MIT, it prevents patents from being weaponized against users of this software.

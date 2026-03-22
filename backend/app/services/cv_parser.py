@@ -8,6 +8,21 @@ from app.schemas.candidate import CandidateIngestRequest, CandidateIngestRespons
 
 logger = logging.getLogger(__name__)
 
+
+def _extract_json(text: str) -> str:
+    """Extract the first JSON object from a string, stripping markdown fences and preamble."""
+    # Try a fenced code block first (```json ... ``` or ``` ... ```)
+    fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    if fence:
+        return fence.group(1)
+    # Fall back to the first { ... } block in the text
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        return text[start : end + 1]
+    raise ValueError("No JSON object found in response")
+
+
 SKILL_LEXICON = {
     "python", "java", "javascript", "typescript", "go", "rust", "c++", "c#", "ruby", "scala",
     "fastapi", "django", "flask", "spring", "express", "nextjs", "react", "angular", "vue",
@@ -76,13 +91,8 @@ class CVParserService:
         if not raw:
             return None
         try:
-            # Handle markdown code blocks
-            cleaned = raw.strip()
-            if cleaned.startswith("```"):
-                cleaned = cleaned.split("\n", 1)[1]
-                cleaned = cleaned.rsplit("```", 1)[0]
-            return json.loads(cleaned)
-        except (json.JSONDecodeError, IndexError):
+            return json.loads(_extract_json(raw))
+        except (json.JSONDecodeError, ValueError):
             logger.warning("AI CV parse returned invalid JSON, falling back to heuristic")
             return None
 

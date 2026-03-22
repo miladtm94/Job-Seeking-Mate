@@ -400,6 +400,7 @@ details summary {
 
 /* Tabs */
 .app-tabs { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+.mode-tabs { display: flex; gap: 6px; margin-bottom: 0; flex-wrap: wrap; }
 .tab {
   padding: 6px 16px;
   border: 1px solid var(--border);
@@ -425,6 +426,167 @@ code {
 
 /* Profile */
 .profile-details { animation: fadeIn 200ms ease-out; }
+
+/* PDF Drop Zone */
+.pdf-drop-zone {
+  border: 2px dashed var(--border);
+  border-radius: 8px;
+  padding: 24px;
+  text-align: center;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.9rem;
+  transition: all 150ms;
+  background: #fafafa;
+  margin-top: 4px;
+}
+.pdf-drop-zone:hover { border-color: var(--accent); background: rgba(203, 95, 54, 0.03); }
+.pdf-drop-zone.has-file { border-color: var(--green); background: rgba(46, 139, 87, 0.05); color: var(--ink); font-weight: 500; }
+
+/* ── JATS Tracker ──────────────────────────────────────────────────────────── */
+
+/* Event Timeline */
+.event-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding-left: 4px;
+}
+
+.event-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 6px 0;
+  position: relative;
+}
+
+.event-row::before {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 22px;
+  bottom: -6px;
+  width: 1px;
+  background: var(--border);
+}
+
+.event-row:last-child::before { display: none; }
+
+.event-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px var(--accent);
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+
+.event-content { flex: 1; }
+
+.event-type {
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.event-date {
+  font-size: 0.78rem;
+  margin-left: 8px;
+}
+
+.event-notes {
+  font-size: 0.82rem;
+  margin-top: 2px;
+  line-height: 1.4;
+}
+
+/* ── Analytics Charts ──────────────────────────────────────────────────────── */
+
+/* Stat cards row */
+.stat-cards {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.stat-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 110px;
+  flex: 1;
+  animation: fadeInUp 280ms ease-out;
+}
+
+.stat-card-value {
+  font-size: 1.7rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.stat-card-label {
+  font-size: 0.74rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 4px;
+  text-align: center;
+}
+
+/* Horizontal bar chart */
+.hbar-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hbar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hbar-label {
+  font-size: 0.82rem;
+  width: 120px;
+  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+
+.hbar-track {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 4px;
+  overflow: visible;
+  height: 20px;
+  position: relative;
+}
+
+.hbar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 400ms ease-out;
+  min-width: 2px;
+}
+
+.hbar-value {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--muted);
+  flex-shrink: 0;
+}
 
 /* Animations */
 @keyframes fadeIn {
