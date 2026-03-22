@@ -26,6 +26,11 @@ class ApplicationEntry(JATSBase):
     date_applied: Mapped[str] = mapped_column(String(32), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="applied")
     notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    job_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    contact_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    contact_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    contact_linkedin: Mapped[str | None] = mapped_column(Text, nullable=True)
+    follow_up_date: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now()
     )

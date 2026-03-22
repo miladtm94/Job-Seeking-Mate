@@ -10,6 +10,31 @@ import {
 } from "../../api/client";
 import type { JATSApplicationDetail, JATSApplicationSummary } from "../../api/client";
 
+const PLATFORMS = ["LinkedIn", "Seek", "Indeed", "Glassdoor", "Direct", "Referral", "Other"];
+const CURRENCIES = ["AUD", "USD", "GBP", "EUR", "CAD", "NZD", "SGD"];
+const REMOTE_TYPES = ["remote", "hybrid", "onsite"];
+const SENIORITY_LEVELS = ["junior", "mid", "senior", "staff", "principal"];
+const EMPLOYMENT_TYPES = ["fulltime", "parttime", "contract", "casual"];
+const STATUSES = ["applied", "saved", "interview", "offer", "rejected", "withdrawn"];
+const INDUSTRIES = [
+  "AI/ML", "FinTech", "SaaS", "Cybersecurity", "Cloud/Infrastructure",
+  "E-commerce", "Healthcare/MedTech", "EdTech", "Gaming", "Media/Entertainment",
+  "Consulting", "Government/Public Sector", "Defence", "Telecommunications",
+  "Logistics/Supply Chain", "PropTech", "LegalTech", "AgriTech", "Other",
+];
+
+interface EditDraft {
+  company: string; role_title: string; platform: string;
+  date_applied: string; status: string;
+  location_city: string; location_country: string; remote_type: string;
+  salary_min: string; salary_max: string; currency: string;
+  industry: string; seniority: string; employment_type: string;
+  notes: string; job_url: string;
+  contact_name: string; contact_email: string; contact_linkedin: string;
+  follow_up_date: string;
+  required_skills: string; preferred_skills: string;
+}
+
 const STATUS_COLORS: Record<string, string> = {
   saved: "tag-neutral",
   applied: "tag-primary",
@@ -66,10 +91,44 @@ export function MyApplicationsPage() {
   const [platformFilter, setPlatformFilter] = useState("");
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
   const [addingEvent, setAddingEvent] = useState(false);
   const [newEventType, setNewEventType] = useState("interview_scheduled");
   const [newEventDate, setNewEventDate] = useState(new Date().toISOString().slice(0, 10));
   const [newEventNote, setNewEventNote] = useState("");
+
+  const startEdit = (d: typeof detail) => {
+    if (!d) return;
+    setEditDraft({
+      company: d.company,
+      role_title: d.role_title,
+      platform: d.platform,
+      date_applied: d.date_applied,
+      status: d.status,
+      location_city: d.location_city ?? "",
+      location_country: d.location_country ?? "",
+      remote_type: d.remote_type ?? "",
+      salary_min: d.salary_min ? String(d.salary_min) : "",
+      salary_max: d.salary_max ? String(d.salary_max) : "",
+      currency: d.currency,
+      industry: d.industry ?? "",
+      seniority: d.seniority ?? "",
+      employment_type: d.employment_type ?? "",
+      notes: d.notes,
+      job_url: d.job_url ?? "",
+      contact_name: d.contact_name ?? "",
+      contact_email: d.contact_email ?? "",
+      contact_linkedin: d.contact_linkedin ?? "",
+      follow_up_date: d.follow_up_date ?? "",
+      required_skills: d.skills.filter((s) => s.skill_type === "required").map((s) => s.skill_name).join(", "),
+      preferred_skills: d.skills.filter((s) => s.skill_type === "preferred").map((s) => s.skill_name).join(", "),
+    });
+    setIsEditing(true);
+  };
+
+  const set = (key: keyof EditDraft) => (e: { target: { value: string } }) =>
+    setEditDraft((d) => d ? { ...d, [key]: e.target.value } : d);
 
   const appsQuery = useQuery({
     queryKey: ["jats-applications", statusFilter, platformFilter, search],
@@ -115,6 +174,43 @@ export function MyApplicationsPage() {
       queryClient.invalidateQueries({ queryKey: ["jats-application", selectedId] });
       setAddingEvent(false);
       setNewEventNote("");
+    },
+  });
+
+  const editMutation = useMutation({
+    mutationFn: () => {
+      if (!detail || !editDraft) return Promise.reject(new Error("No data"));
+      return updateJATSApplication(detail.id, {
+        company: editDraft.company,
+        role_title: editDraft.role_title,
+        platform: editDraft.platform,
+        date_applied: editDraft.date_applied,
+        status: editDraft.status,
+        location_city: editDraft.location_city || null,
+        location_country: editDraft.location_country || null,
+        remote_type: editDraft.remote_type || null,
+        salary_min: editDraft.salary_min ? parseInt(editDraft.salary_min, 10) : null,
+        salary_max: editDraft.salary_max ? parseInt(editDraft.salary_max, 10) : null,
+        currency: editDraft.currency,
+        industry: editDraft.industry || null,
+        seniority: editDraft.seniority || null,
+        employment_type: editDraft.employment_type || null,
+        notes: editDraft.notes,
+        job_url: editDraft.job_url || null,
+        contact_name: editDraft.contact_name || null,
+        contact_email: editDraft.contact_email || null,
+        contact_linkedin: editDraft.contact_linkedin || null,
+        follow_up_date: editDraft.follow_up_date || null,
+        required_skills: editDraft.required_skills.split(",").map((s) => s.trim()).filter(Boolean),
+        preferred_skills: editDraft.preferred_skills.split(",").map((s) => s.trim()).filter(Boolean),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["jats-applications"] });
+      queryClient.invalidateQueries({ queryKey: ["jats-application", selectedId] });
+      queryClient.invalidateQueries({ queryKey: ["analytics"] });
+      setIsEditing(false);
+      setEditDraft(null);
     },
   });
 
@@ -216,7 +312,7 @@ export function MyApplicationsPage() {
               {apps.map((app) => (
                 <div
                   key={app.id}
-                  onClick={() => setSelectedId(app.id)}
+                  onClick={() => { setSelectedId(app.id); setIsEditing(false); setEditDraft(null); }}
                   style={{
                     padding: "14px 16px",
                     borderBottom: "1px solid var(--border)",
@@ -245,6 +341,9 @@ export function MyApplicationsPage() {
                         {salaryDisplay(app) && (
                           <span className="tag tag-skill">{salaryDisplay(app)}</span>
                         )}
+                        {app.follow_up_date && app.follow_up_date <= new Date().toISOString().slice(0, 10) && (
+                          <span className="tag tag-danger" style={{ fontSize: "0.72rem" }}>Follow up!</span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -255,7 +354,125 @@ export function MyApplicationsPage() {
 
           {/* Detail panel */}
           <section className="panel">
-            {selectedId && detail ? (
+            {selectedId && detail && isEditing && editDraft ? (
+              /* ── Edit Form ── */
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                  <h3 style={{ margin: 0 }}>Edit Application</h3>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      className="btn-small"
+                      style={{ background: "var(--accent)", color: "#fff", borderColor: "var(--accent)" }}
+                      onClick={() => editMutation.mutate()}
+                      disabled={editMutation.isPending}
+                    >
+                      {editMutation.isPending ? "Saving..." : "Save Changes"}
+                    </button>
+                    <button className="btn-small" onClick={() => { setIsEditing(false); setEditDraft(null); }}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+
+                {editMutation.isError && (
+                  <p style={{ color: "var(--red)", fontSize: "0.85rem", marginBottom: 10 }}>
+                    {(editMutation.error as Error).message}
+                  </p>
+                )}
+
+                <div className="form" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {/* Core */}
+                  <div className="form-row">
+                    <label>Company *<input value={editDraft.company} onChange={set("company")} required /></label>
+                    <label>Role Title *<input value={editDraft.role_title} onChange={set("role_title")} required /></label>
+                  </div>
+                  <div className="form-row">
+                    <label>Platform
+                      <select value={editDraft.platform} onChange={set("platform")}>
+                        {PLATFORMS.map((p) => <option key={p} value={p}>{p}</option>)}
+                      </select>
+                    </label>
+                    <label>Date Applied<input type="date" value={editDraft.date_applied} onChange={set("date_applied")} /></label>
+                    <label>Status
+                      <select value={editDraft.status} onChange={set("status")}>
+                        {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    </label>
+                  </div>
+
+                  {/* Location */}
+                  <div className="form-row">
+                    <label>City<input value={editDraft.location_city} onChange={set("location_city")} placeholder="Sydney" /></label>
+                    <label>Country<input value={editDraft.location_country} onChange={set("location_country")} placeholder="Australia" /></label>
+                    <label>Work Type
+                      <select value={editDraft.remote_type} onChange={set("remote_type")}>
+                        <option value="">— Not specified</option>
+                        {REMOTE_TYPES.map((r) => <option key={r} value={r}>{r}</option>)}
+                      </select>
+                    </label>
+                  </div>
+
+                  {/* Salary */}
+                  <div className="form-row">
+                    <label>Salary Min<input type="number" value={editDraft.salary_min} onChange={set("salary_min")} placeholder="120000" /></label>
+                    <label>Salary Max<input type="number" value={editDraft.salary_max} onChange={set("salary_max")} placeholder="160000" /></label>
+                    <label>Currency
+                      <select value={editDraft.currency} onChange={set("currency")}>
+                        {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    </label>
+                  </div>
+
+                  {/* Classification */}
+                  <div className="form-row">
+                    <label>Industry
+                      <select value={editDraft.industry} onChange={set("industry")}>
+                        <option value="">— Not specified</option>
+                        {INDUSTRIES.map((i) => <option key={i} value={i}>{i}</option>)}
+                      </select>
+                    </label>
+                    <label>Seniority
+                      <select value={editDraft.seniority} onChange={set("seniority")}>
+                        <option value="">— Not specified</option>
+                        {SENIORITY_LEVELS.map((l) => <option key={l} value={l}>{l}</option>)}
+                      </select>
+                    </label>
+                    <label>Employment Type
+                      <select value={editDraft.employment_type} onChange={set("employment_type")}>
+                        <option value="">— Not specified</option>
+                        {EMPLOYMENT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    </label>
+                  </div>
+
+                  {/* Job URL */}
+                  <label>Job Posting URL<input type="url" value={editDraft.job_url} onChange={set("job_url")} placeholder="https://..." /></label>
+
+                  {/* Contact */}
+                  <div className="form-row">
+                    <label>Recruiter Name<input value={editDraft.contact_name} onChange={set("contact_name")} placeholder="Jane Smith" /></label>
+                    <label>Contact Email<input type="email" value={editDraft.contact_email} onChange={set("contact_email")} placeholder="jane@..." /></label>
+                  </div>
+                  <label>Contact LinkedIn<input type="url" value={editDraft.contact_linkedin} onChange={set("contact_linkedin")} placeholder="https://linkedin.com/in/..." /></label>
+
+                  {/* Follow-up */}
+                  <label>Follow-up Reminder<input type="date" value={editDraft.follow_up_date} onChange={set("follow_up_date")} /></label>
+
+                  {/* Skills */}
+                  <label>Required Skills <span className="muted">(comma-separated)</span>
+                    <input value={editDraft.required_skills} onChange={set("required_skills")} placeholder="Python, React, AWS" />
+                  </label>
+                  <label>Preferred Skills <span className="muted">(comma-separated)</span>
+                    <input value={editDraft.preferred_skills} onChange={set("preferred_skills")} placeholder="Kubernetes, GraphQL" />
+                  </label>
+
+                  {/* Notes */}
+                  <label>Notes
+                    <textarea value={editDraft.notes} onChange={set("notes")} rows={3} placeholder="Any notes..." />
+                  </label>
+                </div>
+              </div>
+            ) : selectedId && detail ? (
               <>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                   <div>
@@ -278,15 +495,48 @@ export function MyApplicationsPage() {
                     ["Seniority", detail.seniority],
                     ["Employment", detail.employment_type],
                     ["Salary", salaryDisplay(detail)],
+                    ["Follow-up", detail.follow_up_date && (
+                      detail.follow_up_date <= new Date().toISOString().slice(0, 10)
+                        ? `${detail.follow_up_date} ⚠ overdue`
+                        : detail.follow_up_date
+                    )],
+                    ["Contact", detail.contact_name],
                   ]
                     .filter(([, v]) => v)
                     .map(([k, v]) => (
                       <div key={k as string} style={{ display: "flex", justifyContent: "space-between" }}>
                         <span className="muted">{k}</span>
-                        <strong className="capitalize">{v}</strong>
+                        <strong className="capitalize">{v as string}</strong>
                       </div>
                     ))}
                 </div>
+
+                {/* Job URL */}
+                {detail.job_url && (
+                  <div style={{ marginBottom: 12, fontSize: "0.85rem" }}>
+                    <a href={detail.job_url} target="_blank" rel="noopener noreferrer"
+                      style={{ color: "var(--accent)", wordBreak: "break-all" }}>
+                      View Job Posting ↗
+                    </a>
+                  </div>
+                )}
+
+                {/* Contact details */}
+                {(detail.contact_email || detail.contact_linkedin) && (
+                  <div style={{ marginBottom: 12, fontSize: "0.85rem", display: "flex", gap: 12, flexWrap: "wrap" }}>
+                    {detail.contact_email && (
+                      <a href={`mailto:${detail.contact_email}`} style={{ color: "var(--accent)" }}>
+                        {detail.contact_email}
+                      </a>
+                    )}
+                    {detail.contact_linkedin && (
+                      <a href={detail.contact_linkedin} target="_blank" rel="noopener noreferrer"
+                        style={{ color: "var(--accent)" }}>
+                        LinkedIn ↗
+                      </a>
+                    )}
+                  </div>
+                )}
 
                 {/* Status transitions */}
                 {(STATUS_TRANSITIONS[detail.status] ?? []).length > 0 && (
@@ -389,8 +639,15 @@ export function MyApplicationsPage() {
                   </div>
                 )}
 
-                {/* Danger zone */}
-                <div style={{ marginTop: 20, paddingTop: 14, borderTop: "1px solid var(--border)" }}>
+                {/* Actions */}
+                <div style={{ marginTop: 20, paddingTop: 14, borderTop: "1px solid var(--border)", display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button
+                    className="btn-small"
+                    style={{ background: "var(--accent)", color: "#fff", borderColor: "var(--accent)" }}
+                    onClick={() => startEdit(detail)}
+                  >
+                    Edit Application
+                  </button>
                   <button
                     className="btn-small"
                     style={{ color: "var(--red)", borderColor: "var(--red)" }}

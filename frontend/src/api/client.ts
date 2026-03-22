@@ -297,6 +297,11 @@ export interface LogApplicationRequest {
   notes?: string;
   required_skills?: string[];
   preferred_skills?: string[];
+  job_url?: string | null;
+  contact_name?: string | null;
+  contact_email?: string | null;
+  contact_linkedin?: string | null;
+  follow_up_date?: string | null;
 }
 
 export interface JATSSkill {
@@ -330,6 +335,9 @@ export interface JATSApplicationSummary {
   employment_type: string | null;
   created_at: string;
   required_skills: string[];
+  job_url: string | null;
+  contact_name: string | null;
+  follow_up_date: string | null;
 }
 
 export interface JATSApplicationDetail extends JATSApplicationSummary {
@@ -340,6 +348,8 @@ export interface JATSApplicationDetail extends JATSApplicationSummary {
   resume_used: string;
   cover_letter: string;
   answers_text: string;
+  contact_email: string | null;
+  contact_linkedin: string | null;
 }
 
 export interface JATSListResponse {
@@ -383,18 +393,28 @@ export function fetchJATSApplication(id: string) {
 export function updateJATSApplication(
   id: string,
   data: Partial<{
+    company: string;
+    role_title: string;
+    date_applied: string;
     status: string;
-    notes: string;
-    salary_min: number;
-    salary_max: number;
-    currency: string;
     platform: string;
-    industry: string;
-    seniority: string;
-    employment_type: string;
-    location_city: string;
-    location_country: string;
-    remote_type: string;
+    location_city: string | null;
+    location_country: string | null;
+    remote_type: string | null;
+    salary_min: number | null;
+    salary_max: number | null;
+    currency: string;
+    industry: string | null;
+    seniority: string | null;
+    employment_type: string | null;
+    notes: string;
+    job_url: string | null;
+    contact_name: string | null;
+    contact_email: string | null;
+    contact_linkedin: string | null;
+    follow_up_date: string | null;
+    required_skills: string[];
+    preferred_skills: string[];
   }>
 ) {
   return request<JATSApplicationDetail>(`/jats/applications/${id}`, {
@@ -419,6 +439,13 @@ export function addJATSEvent(
   });
 }
 
+export function checkDuplicate(company: string, role: string) {
+  const qs = new URLSearchParams({ company, role });
+  return request<{ exists: boolean; id?: string; status?: string; date_applied?: string }>(
+    `/jats/check-duplicate?${qs}`
+  );
+}
+
 // ── Analytics ─────────────────────────────────────────────────────────────────
 
 export interface AnalyticsOverview {
@@ -431,6 +458,7 @@ export interface AnalyticsOverview {
   interview_rate: number;
   offer_rate: number;
   rejection_rate: number;
+  response_rate: number;
   avg_response_days: number | null;
 }
 
@@ -449,6 +477,19 @@ export interface AnalyticsData {
     currency: string | null;
   };
   seniority: { seniority: string; count: number }[];
+  overdue_followups: {
+    id: string;
+    company: string;
+    role_title: string;
+    status: string;
+    follow_up_date: string;
+    days_overdue: number;
+  }[];
+  skills_by_outcome: {
+    interviewed: { skill: string; count: number }[];
+    applied_only: { skill: string; count: number }[];
+    rejected: { skill: string; count: number }[];
+  };
 }
 
 export function fetchAnalytics() {

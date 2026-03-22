@@ -5,6 +5,7 @@ import uuid
 from datetime import date
 from pathlib import Path
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.ai_client import ai_complete
@@ -32,6 +33,27 @@ logger = logging.getLogger(__name__)
 
 # Create tables on first import
 JATSBase.metadata.create_all(bind=engine)
+
+
+def _migrate_columns() -> None:
+    """Add new columns to existing DBs — idempotent (ignores already-exists errors)."""
+    new_cols = [
+        ("jats_applications", "job_url", "TEXT"),
+        ("jats_applications", "contact_name", "VARCHAR(255)"),
+        ("jats_applications", "contact_email", "VARCHAR(255)"),
+        ("jats_applications", "contact_linkedin", "TEXT"),
+        ("jats_applications", "follow_up_date", "VARCHAR(32)"),
+    ]
+    with engine.connect() as conn:
+        for table, col, col_type in new_cols:
+            try:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}"))
+                conn.commit()
+            except Exception:
+                pass  # Column already exists
+
+
+_migrate_columns()
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _LOGS_DIR = _PROJECT_ROOT / "data" / "logs"
@@ -101,6 +123,11 @@ def log_application(db: Session, payload: LogApplicationRequest) -> ApplicationD
         employment_type=payload.employment_type,
         description_raw=payload.description_raw,
         notes=payload.notes,
+        job_url=payload.job_url,
+        contact_name=payload.contact_name,
+        contact_email=payload.contact_email,
+        contact_linkedin=payload.contact_linkedin,
+        follow_up_date=payload.follow_up_date,
     )
     db.add(entry)
 
@@ -185,7 +212,14 @@ def update_application(
     if not entry:
         return None
 
-    update_data = payload.model_dump(exclude_none=True)
+    # exclude_unset=True: status-only calls leave other fields untouched;
+    # full-edit calls explicitly include None to clear optional fields.
+    update_data = payload.model_dump(exclude_unset=True)
+
+    # Pull skills out before applying scalar fields
+    required_skills: list[str] | None = update_data.pop("required_skills", None)
+    preferred_skills: list[str] | None = update_data.pop("preferred_skills", None)
+
     old_status = entry.status
     for field, value in update_data.items():
         setattr(entry, field, value)
@@ -199,6 +233,16 @@ def update_application(
             event_date=date.today().isoformat(),
             notes=f"Status changed to {new_status}",
         ))
+
+    # Update skills when explicitly provided (delete all, then re-insert)
+    if required_skills is not None or preferred_skills is not None:
+        db.query(ApplicationSkill).filter(ApplicationSkill.application_id == app_id).delete()
+        for skill in (required_skills or []):
+            if skill.strip():
+                db.add(ApplicationSkill(application_id=app_id, skill_name=skill.strip(), skill_type="required"))
+        for skill in (preferred_skills or []):
+            if skill.strip():
+                db.add(ApplicationSkill(application_id=app_id, skill_name=skill.strip(), skill_type="preferred"))
 
     db.commit()
     db.refresh(entry)
@@ -240,6 +284,26 @@ def delete_application(db: Session, app_id: str) -> bool:
     return True
 
 
+def check_duplicate(db: Session, company: str, role: str) -> dict:
+    """Return whether an application for the same company+role already exists."""
+    existing = (
+        db.query(ApplicationEntry)
+        .filter(
+            ApplicationEntry.company.ilike(company.strip()),
+            ApplicationEntry.role_title.ilike(role.strip()),
+        )
+        .first()
+    )
+    if existing:
+        return {
+            "exists": True,
+            "id": existing.id,
+            "status": existing.status,
+            "date_applied": existing.date_applied,
+        }
+    return {"exists": False}
+
+
 # ── Private helpers ──────────────────────────────────────────────────────────
 
 def _to_summary(entry: ApplicationEntry) -> ApplicationSummary:
@@ -262,6 +326,9 @@ def _to_summary(entry: ApplicationEntry) -> ApplicationSummary:
         employment_type=entry.employment_type,
         created_at=entry.created_at.isoformat() if entry.created_at else "",
         required_skills=required,
+        job_url=entry.job_url,
+        contact_name=entry.contact_name,
+        follow_up_date=entry.follow_up_date,
     )
 
 
@@ -294,6 +361,11 @@ def _to_detail(entry: ApplicationEntry) -> ApplicationDetail:
         resume_used=material.resume_used if material else "",
         cover_letter=material.cover_letter if material else "",
         answers_text=material.answers_text if material else "",
+        job_url=entry.job_url,
+        contact_name=entry.contact_name,
+        contact_email=entry.contact_email,
+        contact_linkedin=entry.contact_linkedin,
+        follow_up_date=entry.follow_up_date,
     )
 
 

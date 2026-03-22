@@ -93,6 +93,16 @@ def add_event(
     return result
 
 
+@router.get("/check-duplicate")
+def check_duplicate(
+    company: str = Query(...),
+    role: str = Query(...),
+    db: Session = Depends(get_jats_db),
+) -> dict:
+    """Return whether an application for this company+role already exists."""
+    return jats_service.check_duplicate(db, company, role)
+
+
 @router.get("/applications/{app_id}/events", response_model=list[EventResponse])
 def get_events(
     app_id: str,

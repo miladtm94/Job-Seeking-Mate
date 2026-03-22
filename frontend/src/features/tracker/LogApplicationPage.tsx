@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { extractJobData, logApplication } from "../../api/client";
+import { checkDuplicate, extractJobData, logApplication } from "../../api/client";
 import type { ExtractedJobData, LogApplicationRequest } from "../../api/client";
 
 const PLATFORMS = ["LinkedIn", "Seek", "Indeed", "Glassdoor", "Direct", "Referral", "Other"];
@@ -10,6 +10,12 @@ const REMOTE_TYPES = ["remote", "hybrid", "onsite"];
 const SENIORITY_LEVELS = ["junior", "mid", "senior", "staff", "principal"];
 const EMPLOYMENT_TYPES = ["fulltime", "parttime", "contract", "casual"];
 const STATUSES = ["applied", "saved", "interview", "offer", "rejected", "withdrawn"];
+const INDUSTRIES = [
+  "AI/ML", "FinTech", "SaaS", "Cybersecurity", "Cloud/Infrastructure",
+  "E-commerce", "Healthcare/MedTech", "EdTech", "Gaming", "Media/Entertainment",
+  "Consulting", "Government/Public Sector", "Defence", "Telecommunications",
+  "Logistics/Supply Chain", "PropTech", "LegalTech", "AgriTech", "Other",
+];
 
 function today() {
   return new Date().toISOString().slice(0, 10);
@@ -30,7 +36,7 @@ export function LogApplicationPage() {
   const [dateApplied, setDateApplied] = useState(today());
   const [status, setStatus] = useState("applied");
   const [locationCity, setLocationCity] = useState("");
-  const [locationCountry, setLocationCountry] = useState("");
+  const [locationCountry, setLocationCountry] = useState("Australia");
   const [remoteType, setRemoteType] = useState("");
   const [salaryMin, setSalaryMin] = useState("");
   const [salaryMax, setSalaryMax] = useState("");
@@ -38,10 +44,15 @@ export function LogApplicationPage() {
   const [industry, setIndustry] = useState("");
   const [seniority, setSeniority] = useState("");
   const [employmentType, setEmploymentType] = useState("");
-  const [resumeUsed, setResumeUsed] = useState("");
   const [notes, setNotes] = useState("");
   const [requiredSkills, setRequiredSkills] = useState("");
   const [preferredSkills, setPreferredSkills] = useState("");
+  const [jobUrl, setJobUrl] = useState("");
+  const [contactName, setContactName] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
+  const [contactLinkedin, setContactLinkedin] = useState("");
+  const [followUpDate, setFollowUpDate] = useState("");
+  const [dupWarning, setDupWarning] = useState<{ id: string; status: string; date_applied: string } | null>(null);
   const [savedId, setSavedId] = useState<string | null>(null);
 
   const extractMutation = useMutation({
@@ -64,6 +75,17 @@ export function LogApplicationPage() {
     },
   });
 
+  const dupMutation = useMutation({
+    mutationFn: () => checkDuplicate(company.trim(), roleTitle.trim()),
+    onSuccess: (data) => {
+      if (data.exists) {
+        setDupWarning({ id: data.id!, status: data.status!, date_applied: data.date_applied! });
+      } else {
+        setDupWarning(null);
+      }
+    },
+  });
+
   const logMutation = useMutation({
     mutationFn: (payload: LogApplicationRequest) => logApplication(payload),
     onSuccess: (data) => {
@@ -71,6 +93,18 @@ export function LogApplicationPage() {
       queryClient.invalidateQueries({ queryKey: ["jats-applications"] });
     },
   });
+
+  const handleDuplicateCheck = () => {
+    if (company.trim().length > 1 && roleTitle.trim().length > 1) {
+      dupMutation.mutate();
+    }
+  };
+
+  const addDays = (n: number) => {
+    const d = new Date();
+    d.setDate(d.getDate() + n);
+    setFollowUpDate(d.toISOString().slice(0, 10));
+  };
 
   const handleExtract = () => {
     if (jobDescription.trim().length < 50) return;
@@ -96,10 +130,14 @@ export function LogApplicationPage() {
       seniority: seniority || null,
       employment_type: employmentType || null,
       description_raw: jobDescription,
-      resume_used: resumeUsed,
       notes,
       required_skills: requiredSkills.split(",").map((s) => s.trim()).filter(Boolean),
       preferred_skills: preferredSkills.split(",").map((s) => s.trim()).filter(Boolean),
+      job_url: jobUrl || null,
+      contact_name: contactName || null,
+      contact_email: contactEmail || null,
+      contact_linkedin: contactLinkedin || null,
+      follow_up_date: followUpDate || null,
     });
   };
 
@@ -121,11 +159,13 @@ export function LogApplicationPage() {
               onClick={() => {
                 setSavedId(null);
                 setCompany(""); setRoleTitle(""); setJobDescription("");
-                setLocationCity(""); setLocationCountry(""); setRemoteType("");
+                setLocationCity(""); setLocationCountry("Australia"); setRemoteType("");
                 setSalaryMin(""); setSalaryMax(""); setIndustry("");
                 setSeniority(""); setEmploymentType(""); setNotes("");
                 setRequiredSkills(""); setPreferredSkills("");
                 setPlatform("LinkedIn"); setDateApplied(today()); setStatus("applied");
+                setJobUrl(""); setContactName(""); setContactEmail("");
+                setContactLinkedin(""); setFollowUpDate(""); setDupWarning(null);
                 setShowExtract(true);
               }}
             >
@@ -209,12 +249,14 @@ export function LogApplicationPage() {
             <div className="form-row">
               <label>
                 Company *
-                <input value={company} onChange={(e) => setCompany(e.target.value)}
+                <input value={company} onChange={(e) => { setCompany(e.target.value); setDupWarning(null); }}
+                  onBlur={handleDuplicateCheck}
                   placeholder="Google" required />
               </label>
               <label>
                 Role Title *
-                <input value={roleTitle} onChange={(e) => setRoleTitle(e.target.value)}
+                <input value={roleTitle} onChange={(e) => { setRoleTitle(e.target.value); setDupWarning(null); }}
+                  onBlur={handleDuplicateCheck}
                   placeholder="Senior Software Engineer" required />
               </label>
             </div>
@@ -288,8 +330,10 @@ export function LogApplicationPage() {
             <div className="form-row">
               <label>
                 Industry
-                <input value={industry} onChange={(e) => setIndustry(e.target.value)}
-                  placeholder="FinTech / AI-ML / Healthcare" />
+                <select value={industry} onChange={(e) => setIndustry(e.target.value)}>
+                  <option value="">— Not specified</option>
+                  {INDUSTRIES.map((i) => <option key={i} value={i}>{i}</option>)}
+                </select>
               </label>
               <label>
                 Seniority
@@ -311,6 +355,52 @@ export function LogApplicationPage() {
               </label>
             </div>
 
+            {/* Job URL */}
+            <label>
+              Job Posting URL
+              <input value={jobUrl} onChange={(e) => setJobUrl(e.target.value)}
+                placeholder="https://linkedin.com/jobs/view/..." type="url" />
+            </label>
+
+            {/* Contact */}
+            <div className="form-row">
+              <label>
+                Recruiter / Contact Name
+                <input value={contactName} onChange={(e) => setContactName(e.target.value)}
+                  placeholder="Jane Smith" />
+              </label>
+              <label>
+                Contact Email
+                <input value={contactEmail} onChange={(e) => setContactEmail(e.target.value)}
+                  placeholder="jane@company.com" type="email" />
+              </label>
+            </div>
+            <label>
+              Contact LinkedIn
+              <input value={contactLinkedin} onChange={(e) => setContactLinkedin(e.target.value)}
+                placeholder="https://linkedin.com/in/janesmith" type="url" />
+            </label>
+
+            {/* Follow-up */}
+            <div>
+              <label>
+                Follow-up Reminder
+                <input type="date" value={followUpDate} onChange={(e) => setFollowUpDate(e.target.value)} />
+              </label>
+              <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
+                {[7, 14, 21, 30].map((n) => (
+                  <button key={n} type="button" className="btn-small" onClick={() => addDays(n)}>
+                    +{n}d
+                  </button>
+                ))}
+                {followUpDate && (
+                  <button type="button" className="btn-small" onClick={() => setFollowUpDate("")}>
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
+
             {/* Skills */}
             <label>
               Required Skills <span className="muted">(comma-separated)</span>
@@ -323,17 +413,22 @@ export function LogApplicationPage() {
                 placeholder="Kubernetes, GraphQL" />
             </label>
 
-            {/* Materials */}
-            <label>
-              Resume Used
-              <input value={resumeUsed} onChange={(e) => setResumeUsed(e.target.value)}
-                placeholder="e.g. Software_Engineer_Resume_v3.pdf" />
-            </label>
             <label>
               Notes
               <textarea value={notes} onChange={(e) => setNotes(e.target.value)}
                 placeholder="Any notes about this application..." rows={3} />
             </label>
+
+            {dupWarning && (
+              <div style={{
+                padding: "10px 14px", borderRadius: 8, background: "#fff8e1",
+                border: "1px solid #f0c040", fontSize: "0.85rem", color: "#7a5800",
+              }}>
+                <strong>Possible duplicate:</strong> You already applied to this role on{" "}
+                {dupWarning.date_applied} (status: <em>{dupWarning.status}</em>).{" "}
+                You can still save if this is a new application.
+              </div>
+            )}
 
             {logMutation.isError && (
               <p className="text-red" style={{ fontSize: "0.88rem" }}>

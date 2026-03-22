@@ -1,11 +1,11 @@
 import logging
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.db.jats_models import ApplicationEntry, ApplicationSkill
+from app.db.jats_models import ApplicationEntry, ApplicationEvent, ApplicationSkill
 
 logger = logging.getLogger(__name__)
 
@@ -30,9 +30,34 @@ def get_overview(db: Session) -> dict:
     interview_rate = round(n_interviewed / max(n_applied, 1) * 100, 1)
     offer_rate = round(n_offered / max(n_applied, 1) * 100, 1)
     rejection_rate = round(n_rejected / max(n_applied, 1) * 100, 1)
+    response_rate = round((n_interviewed + n_rejected) / max(n_applied, 1) * 100, 1)
 
-    # Avg response time (days between applied and first non-applied event)
-    avg_response_days: float | None = None
+    # Avg response time: days from date_applied to first non-applied event per app
+    first_response_subq = (
+        db.query(
+            ApplicationEvent.application_id,
+            func.min(ApplicationEvent.event_date).label("first_response_date"),
+        )
+        .filter(ApplicationEvent.event_type != "applied")
+        .group_by(ApplicationEvent.application_id)
+        .subquery()
+    )
+    response_rows = (
+        db.query(ApplicationEntry.date_applied, first_response_subq.c.first_response_date)
+        .join(first_response_subq, ApplicationEntry.id == first_response_subq.c.application_id)
+        .all()
+    )
+    times: list[int] = []
+    for applied_str, response_str in response_rows:
+        try:
+            applied = datetime.fromisoformat(applied_str).date()
+            responded = datetime.fromisoformat(response_str).date()
+            days = (responded - applied).days
+            if 0 <= days <= 365:
+                times.append(days)
+        except (ValueError, TypeError):
+            pass
+    avg_response_days: float | None = round(sum(times) / len(times), 1) if times else None
 
     return {
         "total": total,
@@ -44,6 +69,7 @@ def get_overview(db: Session) -> dict:
         "interview_rate": interview_rate,
         "offer_rate": offer_rate,
         "rejection_rate": rejection_rate,
+        "response_rate": response_rate,
         "avg_response_days": avg_response_days,
     }
 
@@ -186,6 +212,65 @@ def get_seniority_distribution(db: Session) -> list[dict]:
     return [{"seniority": s, "count": c} for s, c in rows]
 
 
+def get_overdue_followups(db: Session) -> list[dict]:
+    """Applications with follow_up_date <= today and still active."""
+    today_str = date.today().isoformat()
+    rows = (
+        db.query(ApplicationEntry)
+        .filter(
+            ApplicationEntry.follow_up_date.isnot(None),
+            ApplicationEntry.follow_up_date <= today_str,
+            ApplicationEntry.status.in_(["applied", "interview", "saved"]),
+        )
+        .order_by(ApplicationEntry.follow_up_date.asc())
+        .all()
+    )
+    today_date = date.today()
+    result = []
+    for e in rows:
+        try:
+            due = datetime.fromisoformat(e.follow_up_date).date()
+            days_overdue = (today_date - due).days
+        except (ValueError, TypeError):
+            days_overdue = 0
+        result.append({
+            "id": e.id,
+            "company": e.company,
+            "role_title": e.role_title,
+            "status": e.status,
+            "follow_up_date": e.follow_up_date,
+            "days_overdue": days_overdue,
+        })
+    return result
+
+
+def get_skills_by_outcome(db: Session) -> dict:
+    """Top required skills split by application outcome."""
+
+    def top_skills(statuses: list[str], limit: int = 10) -> list[dict]:
+        subq = (
+            db.query(ApplicationEntry.id)
+            .filter(ApplicationEntry.status.in_(statuses))
+            .subquery()
+        )
+        rows = (
+            db.query(ApplicationSkill.skill_name, func.count(ApplicationSkill.id))
+            .join(subq, ApplicationSkill.application_id == subq.c.id)
+            .filter(ApplicationSkill.skill_type == "required")
+            .group_by(ApplicationSkill.skill_name)
+            .order_by(func.count(ApplicationSkill.id).desc())
+            .limit(limit)
+            .all()
+        )
+        return [{"skill": s, "count": c} for s, c in rows]
+
+    return {
+        "interviewed": top_skills(["interview", "offer"]),
+        "applied_only": top_skills(["applied"]),
+        "rejected": top_skills(["rejected"]),
+    }
+
+
 def get_full_analytics(db: Session) -> dict:
     return {
         "overview": get_overview(db),
@@ -197,4 +282,6 @@ def get_full_analytics(db: Session) -> dict:
         "skills_frequency": get_skills_frequency(db),
         "salary": get_salary_distribution(db),
         "seniority": get_seniority_distribution(db),
+        "overdue_followups": get_overdue_followups(db),
+        "skills_by_outcome": get_skills_by_outcome(db),
     }
