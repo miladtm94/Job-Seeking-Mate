@@ -234,11 +234,15 @@ export function AnalyticsPage() {
       {/* Overview stat cards */}
       <div className="stat-cards" style={{ marginTop: 16 }}>
         <StatCard value={ov.total} label="Total Applications" />
+        <StatCard value={`${ov.response_rate}%`} label="Response Rate" color="var(--accent)" />
         <StatCard value={`${ov.interview_rate}%`} label="Interview Rate" color="var(--blue)" />
         <StatCard value={`${ov.offer_rate}%`} label="Offer Rate" color="var(--green)" />
         <StatCard value={ov.offer_count} label="Offers" color="var(--green)" />
         <StatCard value={ov.interview_count} label="Interviews" color="var(--blue)" />
         <StatCard value={ov.rejected_count} label="Rejected" color="var(--red)" />
+        {ov.avg_response_days != null && (
+          <StatCard value={`${ov.avg_response_days}d`} label="Avg. Days to Response" color="var(--muted)" />
+        )}
       </div>
 
       {/* Status distribution */}
@@ -359,6 +363,44 @@ export function AnalyticsPage() {
             valueKey="count"
             color="var(--yellow)"
           />
+        </section>
+      )}
+
+      {/* Skills by Outcome */}
+      {(data.skills_by_outcome.interviewed.length > 0 || data.skills_by_outcome.rejected.length > 0) && (
+        <section className="panel" style={{ marginTop: 16 }}>
+          <h3>Skills by Outcome</h3>
+          <p className="muted" style={{ fontSize: "0.82rem", marginBottom: 14 }}>
+            Compare which skills appear in applications that got interviews vs rejections
+          </p>
+          <div className="grid two-col">
+            {data.skills_by_outcome.interviewed.length > 0 && (
+              <div>
+                <p style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--green)", marginBottom: 8 }}>
+                  Interviewed / Offered
+                </p>
+                <HBar
+                  data={data.skills_by_outcome.interviewed as Record<string, unknown>[]}
+                  labelKey="skill"
+                  valueKey="count"
+                  color="var(--green)"
+                />
+              </div>
+            )}
+            {data.skills_by_outcome.rejected.length > 0 && (
+              <div>
+                <p style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--red)", marginBottom: 8 }}>
+                  Rejected
+                </p>
+                <HBar
+                  data={data.skills_by_outcome.rejected as Record<string, unknown>[]}
+                  labelKey="skill"
+                  valueKey="count"
+                  color="var(--red)"
+                />
+              </div>
+            )}
+          </div>
         </section>
       )}
     </div>

@@ -55,20 +55,43 @@ class LogApplicationRequest(BaseModel):
     required_skills: list[str] = Field(default_factory=list)
     preferred_skills: list[str] = Field(default_factory=list)
 
+    job_url: str | None = None
+    contact_name: str | None = None
+    contact_email: str | None = None
+    contact_linkedin: str | None = None
+    follow_up_date: str | None = None
+
 
 class UpdateApplicationRequest(BaseModel):
+    # Core
+    company: str | None = None
+    role_title: str | None = None
+    date_applied: str | None = None
     status: str | None = None
-    notes: str | None = None
-    salary_min: int | None = None
-    salary_max: int | None = None
-    currency: str | None = None
+    platform: str | None = None
+    # Location
     location_city: str | None = None
     location_country: str | None = None
     remote_type: str | None = None
+    # Salary
+    salary_min: int | None = None
+    salary_max: int | None = None
+    currency: str | None = None
+    # Classification
     industry: str | None = None
     seniority: str | None = None
     employment_type: str | None = None
-    platform: str | None = None
+    # Contact & tracking
+    job_url: str | None = None
+    contact_name: str | None = None
+    contact_email: str | None = None
+    contact_linkedin: str | None = None
+    follow_up_date: str | None = None
+    # Text
+    notes: str | None = None
+    # Skills (None = don't touch; [] = clear all)
+    required_skills: list[str] | None = None
+    preferred_skills: list[str] | None = None
 
 
 # ── Events ───────────────────────────────────────────────────────────────────
@@ -112,6 +135,9 @@ class ApplicationSummary(BaseModel):
     employment_type: str | None
     created_at: str
     required_skills: list[str] = Field(default_factory=list)
+    job_url: str | None = None
+    contact_name: str | None = None
+    follow_up_date: str | None = None
 
 
 class ApplicationDetail(ApplicationSummary):
@@ -122,6 +148,8 @@ class ApplicationDetail(ApplicationSummary):
     resume_used: str = ""
     cover_letter: str = ""
     answers_text: str = ""
+    contact_email: str | None = None
+    contact_linkedin: str | None = None
 
 
 class ApplicationListResponse(BaseModel):
