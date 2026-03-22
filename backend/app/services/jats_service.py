@@ -239,10 +239,14 @@ def update_application(
         db.query(ApplicationSkill).filter(ApplicationSkill.application_id == app_id).delete()
         for skill in (required_skills or []):
             if skill.strip():
-                db.add(ApplicationSkill(application_id=app_id, skill_name=skill.strip(), skill_type="required"))
+                db.add(ApplicationSkill(
+                    application_id=app_id, skill_name=skill.strip(), skill_type="required"
+                ))
         for skill in (preferred_skills or []):
             if skill.strip():
-                db.add(ApplicationSkill(application_id=app_id, skill_name=skill.strip(), skill_type="preferred"))
+                db.add(ApplicationSkill(
+                    application_id=app_id, skill_name=skill.strip(), skill_type="preferred"
+                ))
 
     db.commit()
     db.refresh(entry)
