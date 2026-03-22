@@ -9,8 +9,8 @@ from app.schemas.jats import (
     ApplicationDetail,
     ApplicationListResponse,
     EventResponse,
-    ExtractRequest,
     ExtractedJobData,
+    ExtractRequest,
     LogApplicationRequest,
     UpdateApplicationRequest,
 )

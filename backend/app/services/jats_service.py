@@ -10,7 +10,12 @@ from sqlalchemy.orm import Session
 from app.core.ai_client import ai_complete
 from app.db import jats_models  # noqa: F401 — registers ORM models
 from app.db.jats_db import JATSBase, engine
-from app.db.jats_models import ApplicationEntry, ApplicationEvent, ApplicationMaterial, ApplicationSkill
+from app.db.jats_models import (
+    ApplicationEntry,
+    ApplicationEvent,
+    ApplicationMaterial,
+    ApplicationSkill,
+)
 from app.schemas.jats import (
     AddEventRequest,
     ApplicationDetail,
