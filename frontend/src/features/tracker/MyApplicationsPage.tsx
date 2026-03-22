@@ -31,8 +31,15 @@ interface EditDraft {
   industry: string; custom_industry: string; seniority: string; employment_type: string;
   notes: string; job_url: string;
   contact_name: string; contact_email: string;
-  follow_up_date: string;
+  follow_up_date: string; fit_score: string;
   required_skills: string; preferred_skills: string;
+}
+
+function fitScoreColor(score: number) {
+  if (score >= 81) return "#2e8b57";
+  if (score >= 61) return "#2980b9";
+  if (score >= 41) return "#d4a017";
+  return "#c0392b";
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -121,6 +128,7 @@ export function MyApplicationsPage() {
       contact_name: d.contact_name ?? "",
       contact_email: d.contact_email ?? "",
       follow_up_date: d.follow_up_date ?? "",
+      fit_score: d.fit_score != null ? String(d.fit_score) : "",
       required_skills: d.skills.filter((s) => s.skill_type === "required").map((s) => s.skill_name).join(", "),
       preferred_skills: d.skills.filter((s) => s.skill_type === "preferred").map((s) => s.skill_name).join(", "),
     });
@@ -202,6 +210,9 @@ export function MyApplicationsPage() {
         contact_name: editDraft.contact_name || null,
         contact_email: editDraft.contact_email || null,
         follow_up_date: editDraft.follow_up_date || null,
+        fit_score: editDraft.fit_score !== ""
+          ? Math.min(100, Math.max(0, parseInt(editDraft.fit_score, 10)))
+          : null,
         required_skills: editDraft.required_skills.split(",").map((s) => s.trim()).filter(Boolean),
         preferred_skills: editDraft.preferred_skills.split(",").map((s) => s.trim()).filter(Boolean),
       });
@@ -345,6 +356,15 @@ export function MyApplicationsPage() {
                         {app.follow_up_date && app.follow_up_date <= new Date().toISOString().slice(0, 10) && (
                           <span className="tag tag-danger" style={{ fontSize: "0.72rem" }}>Follow up!</span>
                         )}
+                        {app.fit_score != null && (
+                          <span style={{
+                            fontSize: "0.72rem", fontWeight: 700, padding: "1px 7px",
+                            borderRadius: 10, background: fitScoreColor(app.fit_score) + "22",
+                            color: fitScoreColor(app.fit_score), border: `1px solid ${fitScoreColor(app.fit_score)}44`,
+                          }}>
+                            Fit {app.fit_score}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -461,6 +481,28 @@ export function MyApplicationsPage() {
                   {/* Follow-up */}
                   <label>Follow-up Reminder<input type="date" value={editDraft.follow_up_date} onChange={set("follow_up_date")} /></label>
 
+                  {/* Fit Score */}
+                  <div>
+                    <label style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span>Fit to Role <span className="muted" style={{ fontWeight: 400 }}>(0–100)</span></span>
+                      {editDraft.fit_score !== "" && (
+                        <span style={{ fontWeight: 700, color: fitScoreColor(parseInt(editDraft.fit_score, 10)) }}>
+                          {editDraft.fit_score}
+                        </span>
+                      )}
+                    </label>
+                    <input
+                      type="range" min={0} max={100} step={1}
+                      value={editDraft.fit_score === "" ? 50 : editDraft.fit_score}
+                      onChange={(e) => setEditDraft((d) => d ? { ...d, fit_score: e.target.value } : d)}
+                      onMouseDown={() => {
+                        if (editDraft.fit_score === "")
+                          setEditDraft((d) => d ? { ...d, fit_score: "50" } : d);
+                      }}
+                      style={{ width: "100%", marginTop: 4 }}
+                    />
+                  </div>
+
                   {/* Skills */}
                   <label>Required Skills <span className="muted">(comma-separated)</span>
                     <input value={editDraft.required_skills} onChange={set("required_skills")} placeholder="Python, React, AWS" />
@@ -512,6 +554,14 @@ export function MyApplicationsPage() {
                         <strong className="capitalize">{v as string}</strong>
                       </div>
                     ))}
+                  {detail.fit_score != null && (
+                    <div style={{ display: "flex", justifyContent: "space-between", gridColumn: "1/-1" }}>
+                      <span className="muted">Fit to Role</span>
+                      <strong style={{ color: fitScoreColor(detail.fit_score) }}>
+                        {detail.fit_score} / 100
+                      </strong>
+                    </div>
+                  )}
                 </div>
 
                 {/* Job URL */}

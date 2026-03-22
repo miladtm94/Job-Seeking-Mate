@@ -301,6 +301,7 @@ export interface LogApplicationRequest {
   contact_name?: string | null;
   contact_email?: string | null;
   follow_up_date?: string | null;
+  fit_score?: number | null;
 }
 
 export interface JATSSkill {
@@ -337,6 +338,7 @@ export interface JATSApplicationSummary {
   job_url: string | null;
   contact_name: string | null;
   follow_up_date: string | null;
+  fit_score: number | null;
 }
 
 export interface JATSApplicationDetail extends JATSApplicationSummary {
@@ -410,6 +412,7 @@ export function updateJATSApplication(
     contact_name: string | null;
     contact_email: string | null;
     follow_up_date: string | null;
+    fit_score: number | null;
     required_skills: string[];
     preferred_skills: string[];
   }>
@@ -486,6 +489,12 @@ export interface AnalyticsData {
     interviewed: { skill: string; count: number }[];
     applied_only: { skill: string; count: number }[];
     rejected: { skill: string; count: number }[];
+  };
+  fit_score: {
+    avg: number | null;
+    count: number;
+    distribution: { range: string; count: number }[];
+    by_status: { status: string; avg_score: number; count: number }[];
   };
 }
 

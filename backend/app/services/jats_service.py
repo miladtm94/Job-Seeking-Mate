@@ -38,6 +38,7 @@ JATSBase.metadata.create_all(bind=engine)
 def _migrate_columns() -> None:
     """Add new columns to existing DBs — idempotent (ignores already-exists errors)."""
     new_cols = [
+        ("jats_applications", "fit_score", "INTEGER"),
         ("jats_applications", "job_url", "TEXT"),
         ("jats_applications", "contact_name", "VARCHAR(255)"),
         ("jats_applications", "contact_email", "VARCHAR(255)"),
@@ -128,6 +129,7 @@ def log_application(db: Session, payload: LogApplicationRequest) -> ApplicationD
         contact_email=payload.contact_email,
         contact_linkedin=payload.contact_linkedin,
         follow_up_date=payload.follow_up_date,
+        fit_score=payload.fit_score,
     )
     db.add(entry)
 
@@ -333,6 +335,7 @@ def _to_summary(entry: ApplicationEntry) -> ApplicationSummary:
         job_url=entry.job_url,
         contact_name=entry.contact_name,
         follow_up_date=entry.follow_up_date,
+        fit_score=entry.fit_score,
     )
 
 
@@ -370,6 +373,7 @@ def _to_detail(entry: ApplicationEntry) -> ApplicationDetail:
         contact_email=entry.contact_email,
         contact_linkedin=entry.contact_linkedin,
         follow_up_date=entry.follow_up_date,
+        fit_score=entry.fit_score,
     )
 
 

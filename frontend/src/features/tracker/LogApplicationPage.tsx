@@ -15,6 +15,13 @@ const INDUSTRIES = [
   "E-commerce", "Consulting", "Gaming", "Telecommunications", "Other",
 ];
 
+function fitScoreColor(score: number) {
+  if (score >= 81) return "#2e8b57";   // green
+  if (score >= 61) return "#2980b9";   // blue
+  if (score >= 41) return "#d4a017";   // amber
+  return "#c0392b";                     // red
+}
+
 function today() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -49,6 +56,7 @@ export function LogApplicationPage() {
   const [contactName, setContactName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
   const [customIndustry, setCustomIndustry] = useState("");
+  const [fitScore, setFitScore] = useState("");
   const [followUpDate, setFollowUpDate] = useState("");
   const [dupWarning, setDupWarning] = useState<{ id: string; status: string; date_applied: string } | null>(null);
   const [savedId, setSavedId] = useState<string | null>(null);
@@ -142,6 +150,7 @@ export function LogApplicationPage() {
       contact_name: contactName || null,
       contact_email: contactEmail || null,
       follow_up_date: followUpDate || null,
+      fit_score: fitScore ? Math.min(100, Math.max(0, parseInt(fitScore, 10))) : null,
     });
   };
 
@@ -169,7 +178,7 @@ export function LogApplicationPage() {
                 setRequiredSkills(""); setPreferredSkills("");
                 setPlatform("LinkedIn"); setDateApplied(today()); setStatus("applied");
                 setJobUrl(""); setContactName(""); setContactEmail("");
-                setCustomIndustry(""); setFollowUpDate(""); setDupWarning(null);
+                setCustomIndustry(""); setFollowUpDate(""); setFitScore(""); setDupWarning(null);
                 setShowExtract(true);
               }}
             >
@@ -406,6 +415,36 @@ export function LogApplicationPage() {
                   </button>
                 )}
               </div>
+            </div>
+
+            {/* Fit Score */}
+            <div>
+              <label style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>
+                  Fit to Role
+                  <span className="muted" style={{ fontWeight: 400, marginLeft: 6 }}>(0 – 100, your estimate)</span>
+                </span>
+                {fitScore !== "" && (
+                  <span style={{
+                    fontWeight: 700, fontSize: "1.1rem",
+                    color: fitScoreColor(parseInt(fitScore, 10)),
+                  }}>
+                    {fitScore}
+                  </span>
+                )}
+              </label>
+              <input
+                type="range" min={0} max={100} step={1}
+                value={fitScore === "" ? 50 : fitScore}
+                onChange={(e) => setFitScore(e.target.value)}
+                onMouseDown={() => { if (fitScore === "") setFitScore("50"); }}
+                style={{ width: "100%", marginTop: 4 }}
+              />
+              {fitScore === "" && (
+                <p className="muted" style={{ fontSize: "0.78rem", marginTop: 2 }}>
+                  Move the slider to set a score
+                </p>
+              )}
             </div>
 
             {/* Skills */}
