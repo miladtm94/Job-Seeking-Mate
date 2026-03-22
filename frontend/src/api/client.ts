@@ -300,7 +300,6 @@ export interface LogApplicationRequest {
   job_url?: string | null;
   contact_name?: string | null;
   contact_email?: string | null;
-  contact_linkedin?: string | null;
   follow_up_date?: string | null;
 }
 
@@ -349,7 +348,6 @@ export interface JATSApplicationDetail extends JATSApplicationSummary {
   cover_letter: string;
   answers_text: string;
   contact_email: string | null;
-  contact_linkedin: string | null;
 }
 
 export interface JATSListResponse {
@@ -411,7 +409,6 @@ export function updateJATSApplication(
     job_url: string | null;
     contact_name: string | null;
     contact_email: string | null;
-    contact_linkedin: string | null;
     follow_up_date: string | null;
     required_skills: string[];
     preferred_skills: string[];

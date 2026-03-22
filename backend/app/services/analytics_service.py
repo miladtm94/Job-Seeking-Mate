@@ -84,15 +84,28 @@ def get_by_platform(db: Session) -> list[dict]:
     return [{"platform": p or "Unknown", "count": c} for p, c in rows]
 
 
+_CANONICAL_INDUSTRIES = {
+    "AI/ML", "FinTech", "SaaS", "Cybersecurity", "Healthcare/MedTech",
+    "E-commerce", "Consulting", "Gaming", "Telecommunications",
+}
+
+
 def get_by_industry(db: Session) -> list[dict]:
     rows = (
         db.query(ApplicationEntry.industry, func.count(ApplicationEntry.id))
         .filter(ApplicationEntry.industry.isnot(None))
         .group_by(ApplicationEntry.industry)
-        .order_by(func.count(ApplicationEntry.id).desc())
         .all()
     )
-    return [{"industry": i, "count": c} for i, c in rows]
+    # Non-canonical values (custom "Other" entries) are bucketed as "Other"
+    buckets: dict[str, int] = {}
+    for industry, count in rows:
+        key = industry if industry in _CANONICAL_INDUSTRIES else "Other"
+        buckets[key] = buckets.get(key, 0) + count
+    return [
+        {"industry": k, "count": v}
+        for k, v in sorted(buckets.items(), key=lambda x: -x[1])
+    ]
 
 
 def get_by_status(db: Session) -> list[dict]:
