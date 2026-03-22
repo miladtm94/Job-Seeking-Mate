@@ -258,7 +258,7 @@ def get_fit_score_analytics(db: Session) -> dict:
             {"status": s, "avg_score": round(sum(v) / len(v), 1), "count": len(v)}
             for s, v in status_totals.items()
         ],
-        key=lambda x: -x["avg_score"],
+        key=lambda x: -(x["avg_score"] if isinstance(x["avg_score"], (int, float)) else 0),
     )
 
     return {
@@ -286,7 +286,7 @@ def get_overdue_followups(db: Session) -> list[dict]:
     result = []
     for e in rows:
         try:
-            due = datetime.fromisoformat(e.follow_up_date).date()
+            due = datetime.fromisoformat(e.follow_up_date or "").date()
             days_overdue = (today_date - due).days
         except (ValueError, TypeError):
             days_overdue = 0
