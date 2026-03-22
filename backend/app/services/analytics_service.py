@@ -225,6 +225,50 @@ def get_seniority_distribution(db: Session) -> list[dict]:
     return [{"seniority": s, "count": c} for s, c in rows]
 
 
+def get_fit_score_analytics(db: Session) -> dict:
+    """Fit-to-role score insights: overall avg, distribution, and avg by outcome."""
+    rows = (
+        db.query(ApplicationEntry.fit_score, ApplicationEntry.status)
+        .filter(ApplicationEntry.fit_score.isnot(None))
+        .all()
+    )
+    if not rows:
+        return {"avg": None, "count": 0, "distribution": [], "by_status": []}
+
+    scores = [r[0] for r in rows]
+    avg = round(sum(scores) / len(scores), 1)
+
+    buckets: dict[str, int] = {"0–40": 0, "41–60": 0, "61–80": 0, "81–100": 0}
+    for s in scores:
+        if s <= 40:
+            buckets["0–40"] += 1
+        elif s <= 60:
+            buckets["41–60"] += 1
+        elif s <= 80:
+            buckets["61–80"] += 1
+        else:
+            buckets["81–100"] += 1
+
+    # Avg fit score per outcome status
+    status_totals: dict[str, list[int]] = {}
+    for score, status in rows:
+        status_totals.setdefault(status, []).append(score)
+    by_status = sorted(
+        [
+            {"status": s, "avg_score": round(sum(v) / len(v), 1), "count": len(v)}
+            for s, v in status_totals.items()
+        ],
+        key=lambda x: -x["avg_score"],
+    )
+
+    return {
+        "avg": avg,
+        "count": len(scores),
+        "distribution": [{"range": k, "count": v} for k, v in buckets.items()],
+        "by_status": by_status,
+    }
+
+
 def get_overdue_followups(db: Session) -> list[dict]:
     """Applications with follow_up_date <= today and still active."""
     today_str = date.today().isoformat()
@@ -297,4 +341,5 @@ def get_full_analytics(db: Session) -> dict:
         "seniority": get_seniority_distribution(db),
         "overdue_followups": get_overdue_followups(db),
         "skills_by_outcome": get_skills_by_outcome(db),
+        "fit_score": get_fit_score_analytics(db),
     }

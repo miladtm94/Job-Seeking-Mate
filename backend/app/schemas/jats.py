@@ -60,6 +60,7 @@ class LogApplicationRequest(BaseModel):
     contact_email: str | None = None
     contact_linkedin: str | None = None
     follow_up_date: str | None = None
+    fit_score: int | None = None
 
 
 class UpdateApplicationRequest(BaseModel):
@@ -92,6 +93,7 @@ class UpdateApplicationRequest(BaseModel):
     # Skills (None = don't touch; [] = clear all)
     required_skills: list[str] | None = None
     preferred_skills: list[str] | None = None
+    fit_score: int | None = None
 
 
 # ── Events ───────────────────────────────────────────────────────────────────
@@ -138,6 +140,7 @@ class ApplicationSummary(BaseModel):
     job_url: str | None = None
     contact_name: str | None = None
     follow_up_date: str | None = None
+    fit_score: int | None = None
 
 
 class ApplicationDetail(ApplicationSummary):

@@ -26,6 +26,7 @@ class ApplicationEntry(JATSBase):
     date_applied: Mapped[str] = mapped_column(String(32), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="applied")
     notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    fit_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     job_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     contact_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     contact_email: Mapped[str | None] = mapped_column(String(255), nullable=True)

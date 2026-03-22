@@ -366,6 +366,82 @@ export function AnalyticsPage() {
         </section>
       )}
 
+      {/* Fit to Role Analytics */}
+      {data.fit_score.count > 0 && (
+        <section className="panel" style={{ marginTop: 16 }}>
+          <h3>Fit to Role</h3>
+          <p className="muted" style={{ fontSize: "0.82rem", marginBottom: 14 }}>
+            Your self-assessed fit scores — do higher-fit applications convert better?
+          </p>
+
+          {/* Overall avg + distribution */}
+          <div style={{ display: "flex", gap: 32, flexWrap: "wrap", marginBottom: 20, alignItems: "flex-end" }}>
+            <div>
+              <span className="muted" style={{ fontSize: "0.82rem" }}>Average Fit Score</span>
+              <div style={{
+                fontSize: "2.2rem", fontWeight: 800, lineHeight: 1.1,
+                color: data.fit_score.avg != null && data.fit_score.avg >= 61 ? "var(--green)"
+                  : data.fit_score.avg != null && data.fit_score.avg >= 41 ? "var(--blue)"
+                  : "var(--red)",
+              }}>
+                {data.fit_score.avg ?? "—"}
+                <span style={{ fontSize: "1rem", fontWeight: 400, color: "var(--muted)" }}> / 100</span>
+              </div>
+              <span className="muted" style={{ fontSize: "0.78rem" }}>
+                across {data.fit_score.count} scored application{data.fit_score.count !== 1 ? "s" : ""}
+              </span>
+            </div>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              {data.fit_score.distribution.map((b) => {
+                const maxCount = Math.max(...data.fit_score.distribution.map((x) => x.count), 1);
+                const color = b.range === "81–100" ? "#2e8b57"
+                  : b.range === "61–80" ? "#2980b9"
+                  : b.range === "41–60" ? "#d4a017"
+                  : "#c0392b";
+                return (
+                  <div key={b.range} className="hbar-row">
+                    <div className="hbar-label" style={{ color }}>{b.range}</div>
+                    <div className="hbar-track">
+                      <div className="hbar-fill" style={{ width: `${(b.count / maxCount) * 100}%`, background: color }} />
+                      <span className="hbar-value">{b.count}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Avg fit score by outcome */}
+          {data.fit_score.by_status.length > 0 && (
+            <>
+              <h4 style={{ marginBottom: 10 }}>Avg Score by Outcome</h4>
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                {data.fit_score.by_status.map((s) => {
+                  const color = s.avg_score >= 81 ? "#2e8b57"
+                    : s.avg_score >= 61 ? "#2980b9"
+                    : s.avg_score >= 41 ? "#d4a017"
+                    : "#c0392b";
+                  return (
+                    <div key={s.status} style={{
+                      padding: "12px 18px", borderRadius: 10, border: `1px solid ${color}44`,
+                      background: `${color}11`, textAlign: "center", minWidth: 100,
+                    }}>
+                      <div style={{ fontWeight: 800, fontSize: "1.4rem", color }}>{s.avg_score}</div>
+                      <div style={{ fontSize: "0.78rem", color: "var(--muted)", marginTop: 2 }} className="capitalize">
+                        {s.status}
+                      </div>
+                      <div style={{ fontSize: "0.72rem", color: "var(--muted)" }}>
+                        {s.count} app{s.count !== 1 ? "s" : ""}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </section>
+      )}
+
       {/* Skills by Outcome */}
       {(data.skills_by_outcome.interviewed.length > 0 || data.skills_by_outcome.rejected.length > 0) && (
         <section className="panel" style={{ marginTop: 16 }}>
