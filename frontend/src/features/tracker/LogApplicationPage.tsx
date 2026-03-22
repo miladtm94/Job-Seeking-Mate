@@ -11,10 +11,8 @@ const SENIORITY_LEVELS = ["junior", "mid", "senior", "staff", "principal"];
 const EMPLOYMENT_TYPES = ["fulltime", "parttime", "contract", "casual"];
 const STATUSES = ["applied", "saved", "interview", "offer", "rejected", "withdrawn"];
 const INDUSTRIES = [
-  "AI/ML", "FinTech", "SaaS", "Cybersecurity", "Cloud/Infrastructure",
-  "E-commerce", "Healthcare/MedTech", "EdTech", "Gaming", "Media/Entertainment",
-  "Consulting", "Government/Public Sector", "Defence", "Telecommunications",
-  "Logistics/Supply Chain", "PropTech", "LegalTech", "AgriTech", "Other",
+  "AI/ML", "FinTech", "SaaS", "Cybersecurity", "Healthcare/MedTech",
+  "E-commerce", "Consulting", "Gaming", "Telecommunications", "Other",
 ];
 
 function today() {
@@ -50,7 +48,7 @@ export function LogApplicationPage() {
   const [jobUrl, setJobUrl] = useState("");
   const [contactName, setContactName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
-  const [contactLinkedin, setContactLinkedin] = useState("");
+  const [customIndustry, setCustomIndustry] = useState("");
   const [followUpDate, setFollowUpDate] = useState("");
   const [dupWarning, setDupWarning] = useState<{ id: string; status: string; date_applied: string } | null>(null);
   const [savedId, setSavedId] = useState<string | null>(null);
@@ -66,7 +64,14 @@ export function LogApplicationPage() {
       if (data.salary_min) setSalaryMin(String(data.salary_min));
       if (data.salary_max) setSalaryMax(String(data.salary_max));
       if (data.currency) setCurrency(data.currency);
-      if (data.industry) setIndustry(data.industry);
+      if (data.industry) {
+        if (INDUSTRIES.includes(data.industry)) {
+          setIndustry(data.industry);
+        } else {
+          setIndustry("Other");
+          setCustomIndustry(data.industry);
+        }
+      }
       if (data.seniority) setSeniority(data.seniority);
       if (data.employment_type) setEmploymentType(data.employment_type);
       if (data.required_skills?.length) setRequiredSkills(data.required_skills.join(", "));
@@ -126,7 +131,7 @@ export function LogApplicationPage() {
       salary_min: salaryMin ? parseInt(salaryMin, 10) : null,
       salary_max: salaryMax ? parseInt(salaryMax, 10) : null,
       currency,
-      industry: industry || null,
+      industry: industry === "Other" ? (customIndustry.trim() || "Other") : industry || null,
       seniority: seniority || null,
       employment_type: employmentType || null,
       description_raw: jobDescription,
@@ -136,7 +141,6 @@ export function LogApplicationPage() {
       job_url: jobUrl || null,
       contact_name: contactName || null,
       contact_email: contactEmail || null,
-      contact_linkedin: contactLinkedin || null,
       follow_up_date: followUpDate || null,
     });
   };
@@ -165,7 +169,7 @@ export function LogApplicationPage() {
                 setRequiredSkills(""); setPreferredSkills("");
                 setPlatform("LinkedIn"); setDateApplied(today()); setStatus("applied");
                 setJobUrl(""); setContactName(""); setContactEmail("");
-                setContactLinkedin(""); setFollowUpDate(""); setDupWarning(null);
+                setCustomIndustry(""); setFollowUpDate(""); setDupWarning(null);
                 setShowExtract(true);
               }}
             >
@@ -330,10 +334,18 @@ export function LogApplicationPage() {
             <div className="form-row">
               <label>
                 Industry
-                <select value={industry} onChange={(e) => setIndustry(e.target.value)}>
+                <select value={industry} onChange={(e) => { setIndustry(e.target.value); setCustomIndustry(""); }}>
                   <option value="">— Not specified</option>
                   {INDUSTRIES.map((i) => <option key={i} value={i}>{i}</option>)}
                 </select>
+                {industry === "Other" && (
+                  <input
+                    value={customIndustry}
+                    onChange={(e) => setCustomIndustry(e.target.value)}
+                    placeholder="Specify industry (optional)..."
+                    style={{ marginTop: 4 }}
+                  />
+                )}
               </label>
               <label>
                 Seniority
@@ -375,11 +387,6 @@ export function LogApplicationPage() {
                   placeholder="jane@company.com" type="email" />
               </label>
             </div>
-            <label>
-              Contact LinkedIn
-              <input value={contactLinkedin} onChange={(e) => setContactLinkedin(e.target.value)}
-                placeholder="https://linkedin.com/in/janesmith" type="url" />
-            </label>
 
             {/* Follow-up */}
             <div>

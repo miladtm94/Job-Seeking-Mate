@@ -17,20 +17,20 @@ const SENIORITY_LEVELS = ["junior", "mid", "senior", "staff", "principal"];
 const EMPLOYMENT_TYPES = ["fulltime", "parttime", "contract", "casual"];
 const STATUSES = ["applied", "saved", "interview", "offer", "rejected", "withdrawn"];
 const INDUSTRIES = [
-  "AI/ML", "FinTech", "SaaS", "Cybersecurity", "Cloud/Infrastructure",
-  "E-commerce", "Healthcare/MedTech", "EdTech", "Gaming", "Media/Entertainment",
-  "Consulting", "Government/Public Sector", "Defence", "Telecommunications",
-  "Logistics/Supply Chain", "PropTech", "LegalTech", "AgriTech", "Other",
+  "AI/ML", "FinTech", "SaaS", "Cybersecurity", "Healthcare/MedTech",
+  "E-commerce", "Consulting", "Gaming", "Telecommunications", "Other",
 ];
+// Industries stored as canonical keys; anything else is treated as custom "Other"
+const CANONICAL_INDUSTRIES = new Set(INDUSTRIES.filter((i) => i !== "Other"));
 
 interface EditDraft {
   company: string; role_title: string; platform: string;
   date_applied: string; status: string;
   location_city: string; location_country: string; remote_type: string;
   salary_min: string; salary_max: string; currency: string;
-  industry: string; seniority: string; employment_type: string;
+  industry: string; custom_industry: string; seniority: string; employment_type: string;
   notes: string; job_url: string;
-  contact_name: string; contact_email: string; contact_linkedin: string;
+  contact_name: string; contact_email: string;
   follow_up_date: string;
   required_skills: string; preferred_skills: string;
 }
@@ -112,14 +112,14 @@ export function MyApplicationsPage() {
       salary_min: d.salary_min ? String(d.salary_min) : "",
       salary_max: d.salary_max ? String(d.salary_max) : "",
       currency: d.currency,
-      industry: d.industry ?? "",
+      industry: d.industry && !CANONICAL_INDUSTRIES.has(d.industry) ? "Other" : (d.industry ?? ""),
+      custom_industry: d.industry && !CANONICAL_INDUSTRIES.has(d.industry) ? d.industry : "",
       seniority: d.seniority ?? "",
       employment_type: d.employment_type ?? "",
       notes: d.notes,
       job_url: d.job_url ?? "",
       contact_name: d.contact_name ?? "",
       contact_email: d.contact_email ?? "",
-      contact_linkedin: d.contact_linkedin ?? "",
       follow_up_date: d.follow_up_date ?? "",
       required_skills: d.skills.filter((s) => s.skill_type === "required").map((s) => s.skill_name).join(", "),
       preferred_skills: d.skills.filter((s) => s.skill_type === "preferred").map((s) => s.skill_name).join(", "),
@@ -192,14 +192,15 @@ export function MyApplicationsPage() {
         salary_min: editDraft.salary_min ? parseInt(editDraft.salary_min, 10) : null,
         salary_max: editDraft.salary_max ? parseInt(editDraft.salary_max, 10) : null,
         currency: editDraft.currency,
-        industry: editDraft.industry || null,
+        industry: editDraft.industry === "Other"
+          ? (editDraft.custom_industry.trim() || "Other")
+          : editDraft.industry || null,
         seniority: editDraft.seniority || null,
         employment_type: editDraft.employment_type || null,
         notes: editDraft.notes,
         job_url: editDraft.job_url || null,
         contact_name: editDraft.contact_name || null,
         contact_email: editDraft.contact_email || null,
-        contact_linkedin: editDraft.contact_linkedin || null,
         follow_up_date: editDraft.follow_up_date || null,
         required_skills: editDraft.required_skills.split(",").map((s) => s.trim()).filter(Boolean),
         preferred_skills: editDraft.preferred_skills.split(",").map((s) => s.trim()).filter(Boolean),
@@ -426,10 +427,14 @@ export function MyApplicationsPage() {
                   {/* Classification */}
                   <div className="form-row">
                     <label>Industry
-                      <select value={editDraft.industry} onChange={set("industry")}>
+                      <select value={editDraft.industry} onChange={(e) => setEditDraft((d) => d ? { ...d, industry: e.target.value, custom_industry: "" } : d)}>
                         <option value="">— Not specified</option>
                         {INDUSTRIES.map((i) => <option key={i} value={i}>{i}</option>)}
                       </select>
+                      {editDraft.industry === "Other" && (
+                        <input value={editDraft.custom_industry} onChange={set("custom_industry")}
+                          placeholder="Specify industry (optional)..." style={{ marginTop: 4 }} />
+                      )}
                     </label>
                     <label>Seniority
                       <select value={editDraft.seniority} onChange={set("seniority")}>
@@ -453,8 +458,6 @@ export function MyApplicationsPage() {
                     <label>Recruiter Name<input value={editDraft.contact_name} onChange={set("contact_name")} placeholder="Jane Smith" /></label>
                     <label>Contact Email<input type="email" value={editDraft.contact_email} onChange={set("contact_email")} placeholder="jane@..." /></label>
                   </div>
-                  <label>Contact LinkedIn<input type="url" value={editDraft.contact_linkedin} onChange={set("contact_linkedin")} placeholder="https://linkedin.com/in/..." /></label>
-
                   {/* Follow-up */}
                   <label>Follow-up Reminder<input type="date" value={editDraft.follow_up_date} onChange={set("follow_up_date")} /></label>
 
@@ -522,19 +525,11 @@ export function MyApplicationsPage() {
                 )}
 
                 {/* Contact details */}
-                {(detail.contact_email || detail.contact_linkedin) && (
-                  <div style={{ marginBottom: 12, fontSize: "0.85rem", display: "flex", gap: 12, flexWrap: "wrap" }}>
-                    {detail.contact_email && (
-                      <a href={`mailto:${detail.contact_email}`} style={{ color: "var(--accent)" }}>
-                        {detail.contact_email}
-                      </a>
-                    )}
-                    {detail.contact_linkedin && (
-                      <a href={detail.contact_linkedin} target="_blank" rel="noopener noreferrer"
-                        style={{ color: "var(--accent)" }}>
-                        LinkedIn ↗
-                      </a>
-                    )}
+                {detail.contact_email && (
+                  <div style={{ marginBottom: 12, fontSize: "0.85rem" }}>
+                    <a href={`mailto:${detail.contact_email}`} style={{ color: "var(--accent)" }}>
+                      {detail.contact_email}
+                    </a>
                   </div>
                 )}
 
