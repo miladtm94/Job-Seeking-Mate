@@ -39,6 +39,8 @@ export interface CandidateProfile {
   years_experience: number;
   preferred_roles: string[];
   locations: string[];
+  salary_min?: number;
+  work_type?: string;
   strengths: string[];
   skill_gaps: string[];
   summary: string;
@@ -48,6 +50,32 @@ export function ingestCandidate(data: CandidateIngestRequest) {
   return request<CandidateProfile>("/candidates/ingest", {
     method: "POST",
     body: JSON.stringify(data),
+  });
+}
+
+export function ingestPdf(params: {
+  file: File;
+  name: string;
+  email: string;
+  preferred_roles: string;
+  locations: string;
+  salary_min?: number;
+  work_type: string;
+}) {
+  const form = new FormData();
+  form.append("file", params.file);
+  const qs = new URLSearchParams({
+    name: params.name,
+    email: params.email,
+    preferred_roles: params.preferred_roles,
+    locations: params.locations,
+    work_type: params.work_type,
+    ...(params.salary_min ? { salary_min: String(params.salary_min) } : {}),
+  });
+  return request<CandidateProfile>(`/candidates/ingest-pdf?${qs}`, {
+    method: "POST",
+    headers: {},   // let browser set Content-Type with boundary
+    body: form,
   });
 }
 
@@ -88,6 +116,41 @@ export interface JobSearchResponse {
 
 export function searchJobs(data: JobSearchRequest) {
   return request<JobSearchResponse>("/jobs/search", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export interface ScoredJob {
+  job: JobPosting;
+  match_score: number;
+  key_matching_skills: string[];
+  missing_skills: string[];
+  recommendation: "strong_apply" | "apply" | "maybe" | "skip";
+  explanation: string;
+  fit_reasons: string[];
+  breakdown: {
+    skill_score: number;
+    experience_score: number;
+    domain_score: number;
+    location_score: number;
+    seniority_score: number;
+  };
+}
+
+export interface SmartSearchResponse {
+  scored_jobs: ScoredJob[];
+  total_found: number;
+  queries_used: string[];
+}
+
+export function smartSearchJobs(data: {
+  candidate_id: string;
+  max_results?: number;
+  remote_only?: boolean;
+  locations?: string[];
+}) {
+  return request<SmartSearchResponse>("/jobs/smart-search", {
     method: "POST",
     body: JSON.stringify(data),
   });
@@ -192,6 +255,204 @@ export function updateApplicationStatus(applicationId: string, status: string, n
     method: "PATCH",
     body: JSON.stringify({ status, notes }),
   });
+}
+
+// ── JATS: Job Application Tracking System ────────────────────────────────────
+
+export interface ExtractedJobData {
+  role_title: string;
+  company: string;
+  location_city: string | null;
+  location_country: string | null;
+  remote_type: "remote" | "hybrid" | "onsite" | null;
+  salary_min: number | null;
+  salary_max: number | null;
+  currency: string | null;
+  required_skills: string[];
+  preferred_skills: string[];
+  seniority: string | null;
+  employment_type: string | null;
+  industry: string | null;
+}
+
+export interface LogApplicationRequest {
+  company: string;
+  role_title: string;
+  platform: string;
+  date_applied: string;
+  status: string;
+  location_city?: string | null;
+  location_country?: string | null;
+  remote_type?: string | null;
+  salary_min?: number | null;
+  salary_max?: number | null;
+  currency?: string;
+  industry?: string | null;
+  seniority?: string | null;
+  employment_type?: string | null;
+  description_raw?: string;
+  resume_used?: string;
+  cover_letter?: string;
+  answers_text?: string;
+  notes?: string;
+  required_skills?: string[];
+  preferred_skills?: string[];
+}
+
+export interface JATSSkill {
+  skill_name: string;
+  skill_type: string;
+}
+
+export interface JATSEvent {
+  id: number;
+  application_id: string;
+  event_type: string;
+  event_date: string;
+  notes: string;
+}
+
+export interface JATSApplicationSummary {
+  id: string;
+  company: string;
+  role_title: string;
+  platform: string;
+  date_applied: string;
+  status: string;
+  location_city: string | null;
+  location_country: string | null;
+  remote_type: string | null;
+  salary_min: number | null;
+  salary_max: number | null;
+  currency: string;
+  industry: string | null;
+  seniority: string | null;
+  employment_type: string | null;
+  created_at: string;
+  required_skills: string[];
+}
+
+export interface JATSApplicationDetail extends JATSApplicationSummary {
+  description_raw: string;
+  notes: string;
+  skills: JATSSkill[];
+  events: JATSEvent[];
+  resume_used: string;
+  cover_letter: string;
+  answers_text: string;
+}
+
+export interface JATSListResponse {
+  applications: JATSApplicationSummary[];
+  total: number;
+}
+
+export function extractJobData(description: string) {
+  return request<ExtractedJobData>("/jats/extract", {
+    method: "POST",
+    body: JSON.stringify({ job_description: description }),
+  });
+}
+
+export function logApplication(data: LogApplicationRequest) {
+  return request<JATSApplicationDetail>("/jats/applications", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export function fetchJATSApplications(filters?: {
+  status?: string;
+  platform?: string;
+  industry?: string;
+  search?: string;
+}) {
+  const params = new URLSearchParams();
+  if (filters?.status) params.set("status", filters.status);
+  if (filters?.platform) params.set("platform", filters.platform);
+  if (filters?.industry) params.set("industry", filters.industry);
+  if (filters?.search) params.set("search", filters.search);
+  const qs = params.toString();
+  return request<JATSListResponse>(`/jats/applications${qs ? `?${qs}` : ""}`);
+}
+
+export function fetchJATSApplication(id: string) {
+  return request<JATSApplicationDetail>(`/jats/applications/${id}`);
+}
+
+export function updateJATSApplication(
+  id: string,
+  data: Partial<{
+    status: string;
+    notes: string;
+    salary_min: number;
+    salary_max: number;
+    currency: string;
+    platform: string;
+    industry: string;
+    seniority: string;
+    employment_type: string;
+    location_city: string;
+    location_country: string;
+    remote_type: string;
+  }>
+) {
+  return request<JATSApplicationDetail>(`/jats/applications/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+export function deleteJATSApplication(id: string) {
+  return request<{ deleted: string }>(`/jats/applications/${id}`, {
+    method: "DELETE",
+  });
+}
+
+export function addJATSEvent(
+  id: string,
+  data: { event_type: string; event_date: string; notes?: string }
+) {
+  return request<JATSEvent>(`/jats/applications/${id}/events`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+// ── Analytics ─────────────────────────────────────────────────────────────────
+
+export interface AnalyticsOverview {
+  total: number;
+  by_status: Record<string, number>;
+  applied_count: number;
+  interview_count: number;
+  offer_count: number;
+  rejected_count: number;
+  interview_rate: number;
+  offer_rate: number;
+  rejection_rate: number;
+  avg_response_days: number | null;
+}
+
+export interface AnalyticsData {
+  overview: AnalyticsOverview;
+  by_platform: { platform: string; count: number }[];
+  by_industry: { industry: string; count: number }[];
+  by_status: { status: string; count: number }[];
+  by_remote_type: { remote_type: string; count: number }[];
+  timeline: { date: string; count: number }[];
+  skills_frequency: { skill: string; count: number }[];
+  salary: {
+    buckets: { range: string; count: number }[];
+    avg_min: number | null;
+    avg_max: number | null;
+    currency: string | null;
+  };
+  seniority: { seniority: string; count: number }[];
+}
+
+export function fetchAnalytics() {
+  return request<AnalyticsData>("/analytics/all");
 }
 
 // Orchestrator

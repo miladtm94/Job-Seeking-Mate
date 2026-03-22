@@ -19,8 +19,11 @@ class JobDiscoveryService:
             try:
                 if source == "adzuna":
                     all_jobs.extend(self._search_adzuna(payload))
+                elif source == "jsearch":
+                    all_jobs.extend(self._search_jsearch(payload))
                 elif source == "indeed":
-                    all_jobs.extend(self._search_indeed_fallback(payload))
+                    # "indeed" source now routes to JSearch if key is available
+                    all_jobs.extend(self._search_jsearch(payload))
                 else:
                     logger.info("Source %s not yet implemented, skipping", source)
             except Exception:
@@ -45,7 +48,7 @@ class JobDiscoveryService:
             return []
 
         jobs: list[JobPosting] = []
-        country = "au"  # default to Australia
+        country = get_settings().adzuna_country
         location = payload.locations[0] if payload.locations else ""
 
         params: dict[str, str] = {
@@ -94,9 +97,76 @@ class JobDiscoveryService:
 
         return jobs
 
-    def _search_indeed_fallback(self, payload: JobSearchRequest) -> list[JobPosting]:
-        """Placeholder for Indeed integration. Returns demo data when no API key is set."""
-        return self._generate_demo_jobs(payload, source="indeed", count=3)
+    def _search_jsearch(self, payload: JobSearchRequest) -> list[JobPosting]:
+        """Search via JSearch (RapidAPI) — aggregates Indeed, LinkedIn, Glassdoor, and more."""
+        settings = get_settings()
+        if not settings.jsearch_api_key:
+            logger.info("JSEARCH_API_KEY not configured — skipping")
+            return []
+
+        location = payload.locations[0] if payload.locations else ""
+        # JSearch works best with "role in city, country" format
+        query = f"{payload.query} in {location}" if location else payload.query
+
+        params: dict[str, str] = {
+            "query": query,
+            "page": "1",
+            "num_pages": "1",
+            "date_posted": "month",
+        }
+        if payload.remote_only:
+            params["remote_jobs_only"] = "true"
+
+        try:
+            response = httpx.get(
+                "https://jsearch.p.rapidapi.com/search",
+                params=params,
+                headers={
+                    "X-RapidAPI-Key": settings.jsearch_api_key,
+                    "X-RapidAPI-Host": "jsearch.p.rapidapi.com",
+                },
+                timeout=15,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            jobs: list[JobPosting] = []
+            for r in data.get("data", []):
+                salary_str = None
+                lo = r.get("job_min_salary")
+                hi = r.get("job_max_salary")
+                currency = r.get("job_salary_currency", "")
+                if lo or hi:
+                    parts = []
+                    if lo:
+                        parts.append(f"{currency}${int(lo):,}")
+                    if hi:
+                        parts.append(f"{currency}${int(hi):,}")
+                    salary_str = " – ".join(parts)
+                    period = r.get("job_salary_period", "")
+                    if period:
+                        salary_str += f" /{period.lower()}"
+
+                jobs.append(
+                    JobPosting(
+                        job_id=f"jsearch_{r.get('job_id', '')}",
+                        title=r.get("job_title", "").strip(),
+                        company=r.get("employer_name", "Unknown"),
+                        source="indeed" if "indeed" in r.get("job_apply_link", "").lower()
+                               else r.get("job_publisher", "jsearch").lower(),
+                        location=(
+                            f"{r.get('job_city', '')}, {r.get('job_country', '')}".strip(", ")
+                            or location
+                        ),
+                        description=r.get("job_description", "")[:2000],
+                        url=r.get("job_apply_link") or r.get("job_google_link", ""),
+                        salary=salary_str,
+                    )
+                )
+            return jobs
+        except httpx.HTTPError:
+            logger.exception("JSearch API request failed")
+            return []
 
     def _generate_demo_jobs(
         self, payload: JobSearchRequest, source: str = "demo", count: int = 5
@@ -104,12 +174,15 @@ class JobDiscoveryService:
         query = payload.query.strip().title()
         location = payload.locations[0] if payload.locations else "Remote"
         templates = [
-            ("", "TechCorp", "Design and implement scalable systems."),
-            ("Senior ", "InnovateLabs", "Lead technical projects and mentor team."),
-            ("Lead ", "DataDriven Inc", "Drive architecture decisions and delivery."),
-            ("Junior ", "StartupXYZ", "Build features and grow your skills."),
-            ("Staff ", "MegaTech", "Shape technical strategy across the org."),
-        ]
+            ("", "TechCorp", "Design and implement scalable systems for a fast-growing product."),
+            ("Senior ", "InnovateLabs", "Lead technical projects and mentor a team of engineers."),
+            ("Lead ", "DataDriven Inc", "Drive architecture decisions and own delivery."),
+            ("Junior ", "StartupXYZ", "Build features and grow your skills in a supportive team."),
+            ("Staff ", "MegaTech", "Shape technical strategy across multiple product lines."),
+            ("Principal ", "Visionary AI", "Own the technical roadmap for a core AI platform."),
+            ("", "FinanceHub", "Work on high-impact features serving millions of users."),
+            ("Senior ", "CloudScale", "Build and operate distributed infrastructure at scale."),
+        ]  # fmt: skip
 
         jobs = []
         for i, (prefix, company, desc) in enumerate(templates[:count]):

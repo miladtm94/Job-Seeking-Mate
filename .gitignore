@@ -47,7 +47,7 @@ Thumbs.db
 
 # Logs
 *.log
-logs/
+/logs/
 
 # Build artifacts
 build/
@@ -62,3 +62,19 @@ pg_data/
 *.key
 *.p12
 secrets/
+
+# ── User data — personal tracking data, resumes, logs — NEVER commit ─────────
+# These files live in data/ at runtime but must never reach the repository.
+# The data/ folder structure (with .gitkeep files) IS tracked so new clones
+# have the correct directories ready to use.
+data/jats.db
+data/profiles.json
+data/logs/*
+!data/logs/.gitkeep
+data/resumes/*
+!data/resumes/.gitkeep
+data/covers/*
+!data/covers/.gitkeep
+
+# Claude Code AI memory (local only)
+.claude/
