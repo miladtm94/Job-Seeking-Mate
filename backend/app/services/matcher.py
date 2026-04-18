@@ -69,12 +69,15 @@ class MatchingService:
             f"Experience ({payload.candidate.years_experience}yr) and location "
             f"{'match' if location_match else 'mismatch'} adjusted score to {match_score}."
         )
-        # Skip AI in fast mode (batch scoring); use AI only for single-job detail
-        if fast:
-            explanation = heuristic_explanation
-        else:
-            explanation = self._ai_explanation(payload, match_score, key_matching, missing) \
-                or heuristic_explanation
+
+        # In fast mode (batch scoring) skip AI; in single-job mode run full expert evaluation
+        ai_eval: dict = {}
+        if not fast:
+            ai_eval = self._ai_full_evaluate(payload, match_score, key_matching, missing) or {}
+
+        explanation = ai_eval.get("explanation") or heuristic_explanation
+        if ai_eval.get("fit_reasons"):
+            fit_reasons = ai_eval["fit_reasons"]
 
         return MatchScoreResponse(
             job_id=payload.job.job_id,
@@ -87,6 +90,15 @@ class MatchingService:
             fit_reasons=fit_reasons,
             improvement_suggestions=improvement_suggestions,
             breakdown=breakdown,
+            early_rejection=bool(ai_eval.get("early_rejection", False)),
+            rejection_reason=ai_eval.get("rejection_reason"),
+            technical_fit=int(ai_eval.get("technical_fit", 0)),
+            experience_fit=int(ai_eval.get("experience_fit", 0)),
+            ats_match=int(ai_eval.get("ats_match", 0)),
+            shortlisting_probability=ai_eval.get("shortlisting_probability", "Medium"),
+            ats_keywords=ai_eval.get("ats_keywords", {}),
+            recruiter_risks=ai_eval.get("risks", []),
+            strategic_positioning=ai_eval.get("strategic_positioning", []),
         )
 
     def score_batch(self, payload: BatchMatchRequest) -> BatchMatchResponse:
@@ -161,27 +173,76 @@ class MatchingService:
             suggestions.append("Gain more hands-on project experience")
         return suggestions
 
-    def _ai_explanation(
+    def _ai_full_evaluate(
         self,
         payload: MatchScoreRequest,
         score: int,
         matching: list[str],
         missing: list[str],
-    ) -> str | None:
+    ) -> dict | None:
+        """Run the expert recruiter evaluation workflow (Steps 0–4, 6).
+
+        Returns a structured dict with ATS analysis, multi-dimensional scores,
+        shortlisting probability, recruiter risks, and strategic positioning.
+        """
         system = (
-            "You are a career advisor. Write a brief (2-3 sentence) explanation of how well "
-            "this candidate matches the job. Be specific and actionable. No markdown."
+            "You are an expert senior recruiter, hiring manager, and ATS optimization specialist "
+            "with deep experience across academia and industry. You evaluate candidates rigorously, "
+            "think like a hiring panel, and optimize applications for maximum shortlisting probability. "
+            "Be analytical, critical, and evidence-based. Avoid generic advice.\n\n"
+            "Return ONLY a valid JSON object — no markdown fences, no explanation outside the JSON."
         )
         prompt = (
-            f"Job: {payload.job.title} at {payload.job.company}\n"
-            f"Candidate skills: {', '.join(payload.candidate.skills[:10])}\n"
-            f"Experience: {payload.candidate.years_experience}yr "
-            f"({payload.candidate.seniority})\n"
-            f"Matching skills: {', '.join(s.title() for s in matching)}\n"
-            f"Missing skills: {', '.join(s.title() for s in missing)}\n"
-            f"Score: {score}/100"
+            "Evaluate this candidate for the job below and return a JSON object with these exact keys:\n\n"
+            "{\n"
+            '  "early_rejection": false,\n'
+            '  "rejection_reason": null,\n'
+            '  "ats_keywords": {\n'
+            '    "<keyword>": "present" | "partial" | "missing"\n'
+            "  },\n"
+            '  "technical_fit": 0,\n'
+            '  "experience_fit": 0,\n'
+            '  "ats_match": 0,\n'
+            '  "shortlisting_probability": "Low" | "Medium" | "High",\n'
+            '  "explanation": "2-3 sentence honest summary",\n'
+            '  "fit_reasons": ["concrete strength 1", "..."],\n'
+            '  "risks": ["recruiter objection 1", "..."],\n'
+            '  "strategic_positioning": ["positioning tip 1", "..."]\n'
+            "}\n\n"
+            "Rules:\n"
+            "- early_rejection: true ONLY if domain, seniority, or core skills are fundamentally "
+            "misaligned (not just a stretch)\n"
+            "- ats_keywords: extract 10–15 top JD keywords; classify each\n"
+            "- technical_fit / experience_fit / ats_match: score each 0–100 based on real hiring standards\n"
+            "- fit_reasons: 3–5 specific, evidence-based strengths (not generic)\n"
+            "- risks: 3–5 honest recruiter objections\n"
+            "- strategic_positioning: 3–5 actionable tips (narrative shift, what to emphasize/downplay)\n\n"
+            f"CANDIDATE\n"
+            f"Seniority: {payload.candidate.seniority}\n"
+            f"Experience: {payload.candidate.years_experience} years\n"
+            f"Skills: {', '.join(payload.candidate.skills[:20])}\n"
+            f"Domains: {', '.join(payload.candidate.domains)}\n"
+            f"Preferred roles: {', '.join(payload.candidate.preferred_roles)}\n\n"
+            f"JOB\n"
+            f"Title: {payload.job.title}\n"
+            f"Company: {payload.job.company}\n"
+            f"Matching skills (from heuristic): {', '.join(s.title() for s in matching)}\n"
+            f"Missing skills (from heuristic): {', '.join(s.title() for s in missing)}\n"
+            f"Heuristic score: {score}/100\n\n"
+            f"Job Description:\n{payload.job.description[:3000]}"
         )
-        return ai_complete(system, prompt, max_tokens=256)
+        raw = ai_complete(system, prompt, max_tokens=1200)
+        if not raw:
+            return None
+        try:
+            cleaned = raw.strip()
+            if cleaned.startswith("```"):
+                cleaned = cleaned.split("\n", 1)[1]
+                cleaned = cleaned.rsplit("```", 1)[0]
+            return json.loads(cleaned)
+        except (json.JSONDecodeError, IndexError, ValueError):
+            logger.warning("Failed to parse AI evaluation JSON")
+            return None
 
     @staticmethod
     def _recommendation(score: int) -> str:

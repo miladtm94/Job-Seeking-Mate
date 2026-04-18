@@ -11,7 +11,7 @@ const SENIORITY_LEVELS = ["junior", "mid", "senior", "staff", "principal"];
 const EMPLOYMENT_TYPES = ["fulltime", "parttime", "contract", "casual"];
 const STATUSES = ["applied", "saved", "interview", "offer", "rejected", "withdrawn"];
 const INDUSTRIES = [
-  "AI/ML", "FinTech", "SaaS", "Cybersecurity", "Healthcare/MedTech",
+  "DigiTech", "FinTech", "Cybersecurity", "Healthcare/MedTech",
   "E-commerce", "Consulting", "Gaming", "Telecommunications", "Other",
 ];
 
@@ -59,20 +59,25 @@ export function LogApplicationPage() {
   const [fitScore, setFitScore] = useState("");
   const [followUpDate, setFollowUpDate] = useState("");
   const [dupWarning, setDupWarning] = useState<{ id: string; status: string; date_applied: string } | null>(null);
+  const [dupConfirmed, setDupConfirmed] = useState(false);
   const [savedId, setSavedId] = useState<string | null>(null);
+
+  const [extractedAny, setExtractedAny] = useState(false);
 
   const extractMutation = useMutation({
     mutationFn: () => extractJobData(jobDescription),
     onSuccess: (data: ExtractedJobData) => {
-      if (data.role_title) setRoleTitle(data.role_title);
-      if (data.company) setCompany(data.company);
-      if (data.location_city) setLocationCity(data.location_city);
-      if (data.location_country) setLocationCountry(data.location_country);
-      if (data.remote_type) setRemoteType(data.remote_type);
-      if (data.salary_min) setSalaryMin(String(data.salary_min));
-      if (data.salary_max) setSalaryMax(String(data.salary_max));
-      if (data.currency) setCurrency(data.currency);
+      let anyField = false;
+      if (data.role_title) { setRoleTitle(data.role_title); anyField = true; }
+      if (data.company) { setCompany(data.company); anyField = true; }
+      if (data.location_city) { setLocationCity(data.location_city); anyField = true; }
+      if (data.location_country) { setLocationCountry(data.location_country); anyField = true; }
+      if (data.remote_type) { setRemoteType(data.remote_type); anyField = true; }
+      if (data.salary_min) { setSalaryMin(String(data.salary_min)); anyField = true; }
+      if (data.salary_max) { setSalaryMax(String(data.salary_max)); anyField = true; }
+      if (data.currency) { setCurrency(data.currency); anyField = true; }
       if (data.industry) {
+        anyField = true;
         if (INDUSTRIES.includes(data.industry)) {
           setIndustry(data.industry);
         } else {
@@ -80,11 +85,33 @@ export function LogApplicationPage() {
           setCustomIndustry(data.industry);
         }
       }
-      if (data.seniority) setSeniority(data.seniority);
-      if (data.employment_type) setEmploymentType(data.employment_type);
-      if (data.required_skills?.length) setRequiredSkills(data.required_skills.join(", "));
-      if (data.preferred_skills?.length) setPreferredSkills(data.preferred_skills.join(", "));
+      if (data.seniority) { setSeniority(data.seniority); anyField = true; }
+      if (data.employment_type) { setEmploymentType(data.employment_type); anyField = true; }
+      if (data.required_skills?.length) { setRequiredSkills(data.required_skills.join(", ")); anyField = true; }
+      if (data.preferred_skills?.length) { setPreferredSkills(data.preferred_skills.join(", ")); anyField = true; }
+      // Extra fields from structured form paste
+      if (data.platform && PLATFORMS.includes(data.platform)) { setPlatform(data.platform); anyField = true; }
+      if (data.date_applied) { setDateApplied(data.date_applied); anyField = true; }
+      if (data.contact_name) { setContactName(data.contact_name); anyField = true; }
+      if (data.contact_email) { setContactEmail(data.contact_email); anyField = true; }
+      if (data.job_url) { setJobUrl(data.job_url); anyField = true; }
+      if (data.notes) { setNotes(data.notes); anyField = true; }
+      if (data.fit_score != null) { setFitScore(String(data.fit_score)); anyField = true; }
+      setExtractedAny(anyField);
       setShowExtract(false);
+      // Run duplicate check with the just-extracted values (state hasn't updated yet)
+      const extractedCompany = data.company?.trim() ?? "";
+      const extractedRole = data.role_title?.trim() ?? "";
+      if (extractedCompany.length > 1 && extractedRole.length > 1) {
+        checkDuplicate(extractedCompany, extractedRole)
+          .then((dup) => {
+            if (dup.exists) {
+              setDupWarning({ id: dup.id!, status: dup.status!, date_applied: dup.date_applied! });
+              setDupConfirmed(false);
+            }
+          })
+          .catch(() => {});
+      }
     },
   });
 
@@ -104,11 +131,13 @@ export function LogApplicationPage() {
     onSuccess: (data) => {
       setSavedId(data.id);
       queryClient.invalidateQueries({ queryKey: ["jats-applications"] });
+      queryClient.invalidateQueries({ queryKey: ["analytics"] });
     },
   });
 
   const handleDuplicateCheck = () => {
     if (company.trim().length > 1 && roleTitle.trim().length > 1) {
+      setDupConfirmed(false);
       dupMutation.mutate();
     }
   };
@@ -127,6 +156,7 @@ export function LogApplicationPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!company.trim() || !roleTitle.trim()) return;
+    if (dupWarning && !dupConfirmed) return; // block until user explicitly confirms
     logMutation.mutate({
       company: company.trim(),
       role_title: roleTitle.trim(),
@@ -210,9 +240,10 @@ export function LogApplicationPage() {
                 placeholder="Paste the full job description here..."
                 rows={10}
                 style={{
-                  width: "100%", padding: "10px 12px", border: "1px solid var(--border)",
+                  width: "100%", padding: "10px 12px", border: "1px solid var(--border-2)",
                   borderRadius: 8, fontSize: "0.88rem", fontFamily: "inherit",
-                  resize: "vertical", color: "var(--ink)", background: "#fff",
+                  resize: "vertical", color: "var(--ink)", background: "var(--bg-2)",
+                  lineHeight: 1.6,
                 }}
               />
               <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
@@ -243,8 +274,17 @@ export function LogApplicationPage() {
           {!showExtract && (
             <section className="panel" style={{ padding: "12px 16px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontSize: "0.88rem", color: "var(--green)", fontWeight: 600 }}>
-                  {extractMutation.isSuccess ? "AI extraction complete — fields pre-filled" : "Filling manually"}
+                <span style={{
+                  fontSize: "0.88rem", fontWeight: 600,
+                  color: extractMutation.isSuccess
+                    ? (extractedAny ? "var(--green)" : "var(--amber, #c8860a)")
+                    : "var(--ink)",
+                }}>
+                  {extractMutation.isSuccess
+                    ? (extractedAny
+                      ? "Extraction complete — fields pre-filled"
+                      : "Nothing extracted — AI may not be configured, fill manually")
+                    : "Filling manually"}
                 </span>
                 <button className="btn-small" onClick={() => setShowExtract(true)}>
                   Re-extract
@@ -262,13 +302,13 @@ export function LogApplicationPage() {
             <div className="form-row">
               <label>
                 Company *
-                <input value={company} onChange={(e) => { setCompany(e.target.value); setDupWarning(null); }}
+                <input value={company} onChange={(e) => { setCompany(e.target.value); setDupWarning(null); setDupConfirmed(false); }}
                   onBlur={handleDuplicateCheck}
                   placeholder="Google" required />
               </label>
               <label>
                 Role Title *
-                <input value={roleTitle} onChange={(e) => { setRoleTitle(e.target.value); setDupWarning(null); }}
+                <input value={roleTitle} onChange={(e) => { setRoleTitle(e.target.value); setDupWarning(null); setDupConfirmed(false); }}
                   onBlur={handleDuplicateCheck}
                   placeholder="Senior Software Engineer" required />
               </label>
@@ -467,12 +507,39 @@ export function LogApplicationPage() {
 
             {dupWarning && (
               <div style={{
-                padding: "10px 14px", borderRadius: 8, background: "#fff8e1",
-                border: "1px solid #f0c040", fontSize: "0.85rem", color: "#7a5800",
+                padding: "10px 14px", borderRadius: 8,
+                background: dupConfirmed ? "#f0fff4" : "#fff8e1",
+                border: `1px solid ${dupConfirmed ? "#4caf50" : "#f0c040"}`,
+                fontSize: "0.85rem",
+                color: dupConfirmed ? "#2e7d32" : "#7a5800",
               }}>
-                <strong>Possible duplicate:</strong> You already applied to this role on{" "}
-                {dupWarning.date_applied} (status: <em>{dupWarning.status}</em>).{" "}
-                You can still save if this is a new application.
+                {dupConfirmed ? (
+                  <span>
+                    <strong>Duplicate confirmed —</strong> saving as a new application.{" "}
+                    <button type="button" className="btn-small"
+                      onClick={() => setDupConfirmed(false)}
+                      style={{ marginLeft: 8 }}>Undo</button>
+                  </span>
+                ) : (
+                  <>
+                    <strong>Duplicate detected:</strong> You already have{" "}
+                    <em>{roleTitle}</em> at <em>{company}</em> logged on{" "}
+                    {dupWarning.date_applied} (status: <em>{dupWarning.status}</em>).
+                    <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 10 }}>
+                      <button
+                        type="button"
+                        className="btn btn-accent"
+                        style={{ fontSize: "0.82rem", padding: "4px 12px" }}
+                        onClick={() => setDupConfirmed(true)}
+                      >
+                        Save Anyway
+                      </button>
+                      <span style={{ fontSize: "0.8rem", opacity: 0.8 }}>
+                        Only if this is genuinely a new application
+                      </span>
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
@@ -485,7 +552,7 @@ export function LogApplicationPage() {
             <button
               type="submit"
               className="btn btn-accent"
-              disabled={logMutation.isPending || !company.trim() || !roleTitle.trim()}
+              disabled={logMutation.isPending || !company.trim() || !roleTitle.trim() || (!!dupWarning && !dupConfirmed)}
             >
               {logMutation.isPending ? (
                 <span style={{ display: "flex", alignItems: "center", gap: 8 }}>

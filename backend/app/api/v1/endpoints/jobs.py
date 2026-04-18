@@ -11,6 +11,7 @@ from app.schemas.job import (
 )
 from app.schemas.matching import CandidateForMatch, JobForMatch, MatchScoreRequest
 from app.services.job_discovery import JobDiscoveryService
+from app.services.job_hunt_intelligence import build_search_queries
 from app.services.matcher import MatchingService
 
 logger = logging.getLogger(__name__)
@@ -71,7 +72,7 @@ def search_jobs_get(
     location: str = Query(default=""),
     remote_only: bool = Query(default=False),
     salary_min: int | None = Query(default=None),
-    max_results: int = Query(default=25, le=50),
+    max_results: int = Query(default=25, le=100),
 ) -> JobSearchResponse:
     payload = JobSearchRequest(
         query=query,
@@ -85,22 +86,49 @@ def search_jobs_get(
 
 @router.post("/smart-search", response_model=SmartSearchResponse)
 def smart_search(payload: SmartSearchRequest) -> SmartSearchResponse:
-    """Profile-driven job search: auto-queries from preferred roles, scores every result."""
-    from app.api.v1.endpoints.candidates import get_profile
+    """Profile-driven job search: auto-queries from preferred roles, scores every result.
 
-    profile = get_profile(payload.candidate_id)
-    if not profile:
-        raise HTTPException(
-            status_code=404, detail="Candidate not found — upload your resume first"
-        )
+    If candidate_id is provided, scores against that single profile.
+    Otherwise, loads all uploaded resumes and picks the best match per job.
+    """
+    from app.api.v1.endpoints.candidates import get_profile, list_candidates_internal
 
-    # Build queries from preferred roles; fall back to domain-aware job titles
-    if profile.preferred_roles:
-        queries = profile.preferred_roles[:3]
+    if payload.candidate_id:
+        profile = get_profile(payload.candidate_id)
+        if not profile:
+            raise HTTPException(
+                status_code=404, detail="Candidate not found — upload your resume first"
+            )
+        profiles = [profile]
     else:
-        queries = _infer_queries(profile.seniority, profile.domains, profile.skills)
+        profiles = list_candidates_internal()
+        if not profiles:
+            raise HTTPException(
+                status_code=404, detail="No resumes uploaded yet — upload at least one resume"
+            )
+
+    # Build queries: explicit override → union of profile roles → infer from domains
+    if payload.preferred_roles:
+        queries = payload.preferred_roles[:3]
+    else:
+        seen_roles: set[str] = set()
+        all_roles: list[str] = []
+        for p in profiles:
+            for r in p.preferred_roles:
+                if r.lower() not in seen_roles:
+                    seen_roles.add(r.lower())
+                    all_roles.append(r)
+        if all_roles:
+            queries = all_roles[:3]
+        else:
+            queries = build_search_queries(profiles[0].model_dump(), max_queries=3) or _infer_queries(
+                profiles[0].seniority,
+                profiles[0].domains,
+                profiles[0].skills,
+            )
+
     logger.info("Smart search queries: %s", queries)
-    locations = payload.locations or profile.locations
+    locations = payload.locations or profiles[0].locations
 
     # Search each query and deduplicate by title+company
     all_jobs = []
@@ -115,60 +143,75 @@ def smart_search(payload: SmartSearchRequest) -> SmartSearchResponse:
         )
         all_jobs.extend(result.jobs)
 
-    seen: set[str] = set()
+    seen_keys: set[str] = set()
     unique_jobs = []
     for job in all_jobs:
         key = f"{job.title.lower().strip()}|{job.company.lower().strip()}"
-        if key not in seen:
-            seen.add(key)
+        if key not in seen_keys:
+            seen_keys.add(key)
             unique_jobs.append(job)
 
-    candidate_for_match = CandidateForMatch(
-        skills=profile.skills,
-        years_experience=profile.years_experience,
-        locations=profile.locations,
-        preferred_roles=profile.preferred_roles,
-        domains=profile.domains,
-        seniority=profile.seniority,
-        salary_min=profile.salary_min,
-    )
-    candidate_skills_lower = {s.lower() for s in profile.skills}
-
+    # Score each job against every profile; keep the best score
     scored: list[ScoredJob] = []
     for job in unique_jobs:
-        # Fast skill match: find which candidate skills appear in title + description
-        searchable = (job.title + " " + job.description).lower()
-        matching = sorted(s for s in candidate_skills_lower if s in searchable)
-        missing = sorted(candidate_skills_lower - set(matching))
+        best_score_result = None
+        best_profile = None
+        best_matching: list[str] = []
+        best_missing: list[str] = []
 
-        score_result = matching_service.score(
-            MatchScoreRequest(
-                candidate=candidate_for_match,
-                job=JobForMatch(
-                    job_id=job.job_id,
-                    title=job.title,
-                    company=job.company,
-                    required_skills=matching,
-                    preferred_skills=[],
-                    location=job.location,
-                    description=job.description,
-                    salary=job.salary,
-                ),
-            ),
-            fast=True,
-        )
-        scored.append(
-            ScoredJob(
-                job=job,
-                match_score=score_result.match_score,
-                key_matching_skills=[s.title() for s in matching[:8]],
-                missing_skills=[s.title() for s in missing[:6]],
-                recommendation=score_result.recommendation,
-                explanation=score_result.explanation,
-                fit_reasons=score_result.fit_reasons,
-                breakdown=score_result.breakdown.model_dump(),
+        for profile in profiles:
+            candidate_for_match = CandidateForMatch(
+                skills=profile.skills,
+                years_experience=profile.years_experience,
+                locations=profile.locations,
+                preferred_roles=profile.preferred_roles,
+                domains=profile.domains,
+                seniority=profile.seniority,
+                salary_min=profile.salary_min,
             )
-        )
+            candidate_skills_lower = {s.lower() for s in profile.skills}
+            searchable = (job.title + " " + job.description).lower()
+            matching = sorted(s for s in candidate_skills_lower if s in searchable)
+            missing = sorted(candidate_skills_lower - set(matching))
+
+            score_result = matching_service.score(
+                MatchScoreRequest(
+                    candidate=candidate_for_match,
+                    job=JobForMatch(
+                        job_id=job.job_id,
+                        title=job.title,
+                        company=job.company,
+                        required_skills=matching,
+                        preferred_skills=[],
+                        location=job.location,
+                        description=job.description,
+                        salary=job.salary,
+                    ),
+                ),
+                fast=True,
+            )
+
+            if best_score_result is None or score_result.match_score > best_score_result.match_score:
+                best_score_result = score_result
+                best_profile = profile
+                best_matching = matching
+                best_missing = missing
+
+        if best_score_result and best_profile:
+            scored.append(
+                ScoredJob(
+                    job=job,
+                    match_score=best_score_result.match_score,
+                    key_matching_skills=[s.title() for s in best_matching[:8]],
+                    missing_skills=[s.title() for s in best_missing[:6]],
+                    recommendation=best_score_result.recommendation,
+                    explanation=best_score_result.explanation,
+                    fit_reasons=best_score_result.fit_reasons,
+                    breakdown=best_score_result.breakdown.model_dump(),
+                    best_candidate_id=best_profile.candidate_id,
+                    best_candidate_name=best_profile.name,
+                )
+            )
 
     scored.sort(key=lambda x: x.match_score, reverse=True)
     return SmartSearchResponse(

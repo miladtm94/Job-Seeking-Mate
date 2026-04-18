@@ -13,6 +13,7 @@ from app.schemas.jats import (
     ExtractRequest,
     LogApplicationRequest,
     UpdateApplicationRequest,
+    UpdateEventRequest,
 )
 from app.services import jats_service
 
@@ -91,6 +92,30 @@ def add_event(
     if not result:
         raise HTTPException(status_code=404, detail="Application not found")
     return result
+
+
+@router.patch("/applications/{app_id}/events/{event_id}", response_model=EventResponse)
+def update_event(
+    app_id: str,
+    event_id: int,
+    payload: UpdateEventRequest,
+    db: Session = Depends(get_jats_db),
+) -> EventResponse:
+    result = jats_service.update_event(db, app_id, event_id, payload)
+    if not result:
+        raise HTTPException(status_code=404, detail="Event not found")
+    return result
+
+
+@router.delete("/applications/{app_id}/events/{event_id}")
+def delete_event(
+    app_id: str,
+    event_id: int,
+    db: Session = Depends(get_jats_db),
+) -> dict:
+    if not jats_service.delete_event(db, app_id, event_id):
+        raise HTTPException(status_code=404, detail="Event not found")
+    return {"deleted": event_id}
 
 
 @router.get("/check-duplicate")
