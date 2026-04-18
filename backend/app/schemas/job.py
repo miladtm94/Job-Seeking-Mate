@@ -32,10 +32,12 @@ class JobSearchResponse(BaseModel):
 # Smart search (profile-driven, scored results)
 
 class SmartSearchRequest(BaseModel):
-    candidate_id: str
-    max_results: int = 20
+    candidate_id: str | None = None  # if None, score against all uploaded resumes
+    max_results: int = 100
     remote_only: bool = False
-    locations: list[str] = Field(default_factory=list)  # overrides profile locations
+    locations: list[str] = Field(default_factory=list)
+    preferred_roles: list[str] = Field(default_factory=list)  # override profile roles
+    salary_min: int | None = None
 
 
 class ScoredJob(BaseModel):
@@ -47,6 +49,8 @@ class ScoredJob(BaseModel):
     explanation: str
     fit_reasons: list[str] = Field(default_factory=list)
     breakdown: dict = Field(default_factory=dict)
+    best_candidate_id: str | None = None   # which resume produced the best score
+    best_candidate_name: str | None = None
 
 
 class SmartSearchResponse(BaseModel):

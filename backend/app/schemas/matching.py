@@ -46,6 +46,16 @@ class MatchScoreResponse(BaseModel):
     fit_reasons: list[str] = Field(default_factory=list)
     improvement_suggestions: list[str] = Field(default_factory=list)
     breakdown: MatchBreakdown = Field(default_factory=MatchBreakdown)
+    # Expert recruiter fields (populated on single-job evaluations, not batch)
+    early_rejection: bool = False
+    rejection_reason: str | None = None
+    technical_fit: int = 0
+    experience_fit: int = 0
+    ats_match: int = 0
+    shortlisting_probability: str = "Medium"  # Low | Medium | High
+    ats_keywords: dict[str, str] = Field(default_factory=dict)  # keyword → present/partial/missing
+    recruiter_risks: list[str] = Field(default_factory=list)
+    strategic_positioning: list[str] = Field(default_factory=list)
 
 
 class BatchMatchRequest(BaseModel):

@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   api:
     build:
@@ -14,6 +12,7 @@ services:
       - redis
     volumes:
       - ./backend:/app/backend
+      - ./data:/app/data
 
   worker:
     build:
@@ -27,6 +26,7 @@ services:
       - redis
     volumes:
       - ./backend:/app/backend
+      - ./data:/app/data
 
   web:
     build:
@@ -38,6 +38,7 @@ services:
       - api
     volumes:
       - ./frontend:/app/frontend
+      - frontend_node_modules:/app/frontend/node_modules
 
   db:
     image: postgres:16-alpine
@@ -57,3 +58,4 @@ services:
 
 volumes:
   pg_data:
+  frontend_node_modules:

@@ -266,8 +266,8 @@ export function ProfilePage() {
               )}
 
               <div style={{ marginTop: 16 }}>
-                <a href="/pipeline" className="btn btn-accent">
-                  Run Full Pipeline
+                <a href="/find-jobs" className="btn btn-accent">
+                  Open Job Hunting
                 </a>
               </div>
             </div>

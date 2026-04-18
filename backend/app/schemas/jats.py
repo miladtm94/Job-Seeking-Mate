@@ -23,6 +23,14 @@ class ExtractedJobData(BaseModel):
     seniority: Literal["junior", "mid", "senior", "staff", "principal"] | None = None
     employment_type: Literal["fulltime", "parttime", "contract", "casual"] | None = None
     industry: str | None = None
+    # Extra fields populated from structured tracking-form paste
+    platform: str | None = None
+    date_applied: str | None = None
+    contact_name: str | None = None
+    contact_email: str | None = None
+    job_url: str | None = None
+    notes: str | None = None
+    fit_score: int | None = None
 
 
 # ── Application Logging ──────────────────────────────────────────────────────
@@ -101,6 +109,12 @@ class UpdateApplicationRequest(BaseModel):
 class AddEventRequest(BaseModel):
     event_type: str
     event_date: str = Field(default_factory=lambda: date.today().isoformat())
+    notes: str = ""
+
+
+class UpdateEventRequest(BaseModel):
+    event_type: str
+    event_date: str
     notes: str = ""
 
 

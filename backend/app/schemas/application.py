@@ -25,6 +25,7 @@ class ApplicationGenerateRequest(BaseModel):
     candidate_profile: CandidateProfileInput
     job: JobInput
     mode: str = "manual"  # manual | assisted | auto
+    match_score: int | None = None  # used by Step 4 decision logic
 
 
 class ApplicationGenerateResponse(BaseModel):
@@ -36,6 +37,13 @@ class ApplicationGenerateResponse(BaseModel):
     match_score: int | None = None
     mode: str = "manual"
     status: str = "prepared"
+    # Expert recruiter workflow fields
+    decision: str = "use_as_is"  # use_as_is | improve | new_resume_needed | do_not_apply
+    shortlisting_probability: str = "Medium"
+    strategic_positioning: list[str] = Field(default_factory=list)
+    recruiter_risks: list[str] = Field(default_factory=list)
+    ats_keywords: dict[str, str] = Field(default_factory=dict)
+    resume_improvements: list[str] = Field(default_factory=list)
 
 
 class ApplicationRecord(BaseModel):

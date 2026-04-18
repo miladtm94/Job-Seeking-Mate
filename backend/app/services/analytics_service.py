@@ -85,7 +85,7 @@ def get_by_platform(db: Session) -> list[dict]:
 
 
 _CANONICAL_INDUSTRIES = {
-    "AI/ML", "FinTech", "SaaS", "Cybersecurity", "Healthcare/MedTech",
+    "DigiTech", "FinTech", "Cybersecurity", "Healthcare/MedTech",
     "E-commerce", "Consulting", "Gaming", "Telecommunications",
 }
 

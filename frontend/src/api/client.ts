@@ -1,15 +1,42 @@
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000/api/v1";
 
+const TOKEN_KEY = "jsm_token";
+
+function getToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const token = getToken();
+  const isFormData = options?.body instanceof FormData;
   const response = await fetch(`${API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...options?.headers },
     ...options,
+    headers: {
+      ...(isFormData ? {} : { "Content-Type": "application/json" }),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...options?.headers,
+    },
   });
+  if (response.status === 401) {
+    if (window.location.pathname !== "/login") {
+      localStorage.removeItem(TOKEN_KEY);
+      window.location.href = "/login";
+    }
+    throw new Error("Unauthorized");
+  }
   if (!response.ok) {
     const error = await response.text();
     throw new Error(error || `Request failed: ${response.status}`);
   }
   return response.json() as Promise<T>;
+}
+
+// Auth
+export function loginUser(username: string, password: string) {
+  return request<{ access_token: string; token_type: string }>("/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ username, password }),
+  });
 }
 
 // Health
@@ -29,21 +56,35 @@ export interface CandidateIngestRequest {
   work_type: string;
 }
 
+export interface CandidateSkillClusters {
+  programming: string[];
+  ml_ai: string[];
+  data: string[];
+  tools: string[];
+}
+
 export interface CandidateProfile {
   candidate_id: string;
   name: string;
   email: string;
   skills: string[];
+  skill_clusters: CandidateSkillClusters;
   domains: string[];
+  industries: string[];
   seniority: string;
   years_experience: number;
+  target_roles: string[];
   preferred_roles: string[];
+  keywords: string[];
+  search_queries: string[];
   locations: string[];
   salary_min?: number;
   work_type?: string;
   strengths: string[];
   skill_gaps: string[];
   summary: string;
+  raw_cv_text?: string;
+  filename?: string;
 }
 
 export function ingestCandidate(data: CandidateIngestRequest) {
@@ -85,6 +126,25 @@ export function fetchCandidates() {
 
 export function fetchCandidate(id: string) {
   return request<CandidateProfile>(`/candidates/${id}`);
+}
+
+export function deleteCandidate(id: string) {
+  return request<{ deleted: string }>(`/candidates/${id}`, { method: "DELETE" });
+}
+
+export interface SearchPlanResponse {
+  queries: string[];
+  location: string;
+  location_hint: string;
+  work_type: string;
+  salary_min: number | null;
+  max_jobs: number;
+  min_score: number;
+  date_range: number;
+}
+
+export function fetchSearchPlan(candidateId: string, platform: string) {
+  return request<SearchPlanResponse>(`/candidates/${candidateId}/search-plan?platform=${platform}`);
 }
 
 // Jobs
@@ -136,6 +196,8 @@ export interface ScoredJob {
     location_score: number;
     seniority_score: number;
   };
+  best_candidate_id?: string | null;
+  best_candidate_name?: string | null;
 }
 
 export interface SmartSearchResponse {
@@ -145,10 +207,12 @@ export interface SmartSearchResponse {
 }
 
 export function smartSearchJobs(data: {
-  candidate_id: string;
+  candidate_id?: string;
   max_results?: number;
   remote_only?: boolean;
   locations?: string[];
+  preferred_roles?: string[];
+  salary_min?: number;
 }) {
   return request<SmartSearchResponse>("/jobs/smart-search", {
     method: "POST",
@@ -174,6 +238,16 @@ export interface MatchScoreResponse {
     location_score: number;
     seniority_score: number;
   };
+  // Expert recruiter fields
+  early_rejection?: boolean;
+  rejection_reason?: string | null;
+  technical_fit?: number;
+  experience_fit?: number;
+  ats_match?: number;
+  shortlisting_probability?: "Low" | "Medium" | "High";
+  ats_keywords?: Record<string, "present" | "partial" | "missing">;
+  recruiter_risks?: string[];
+  strategic_positioning?: string[];
 }
 
 export interface BatchMatchResponse {
@@ -200,6 +274,7 @@ export interface ApplicationGenerateRequest {
     url?: string;
   };
   mode: string;
+  match_score?: number | null;
 }
 
 export interface ApplicationGenerateResponse {
@@ -211,6 +286,13 @@ export interface ApplicationGenerateResponse {
   match_score: number | null;
   mode: string;
   status: string;
+  // Expert recruiter workflow fields
+  decision: "use_as_is" | "improve" | "new_resume_needed" | "do_not_apply";
+  shortlisting_probability: "Low" | "Medium" | "High";
+  strategic_positioning: string[];
+  recruiter_risks: string[];
+  ats_keywords: Record<string, "present" | "partial" | "missing">;
+  resume_improvements: string[];
 }
 
 export interface ApplicationRecord {
@@ -273,6 +355,14 @@ export interface ExtractedJobData {
   seniority: string | null;
   employment_type: string | null;
   industry: string | null;
+  // Extra fields from structured tracking-form paste
+  platform: string | null;
+  date_applied: string | null;
+  contact_name: string | null;
+  contact_email: string | null;
+  job_url: string | null;
+  notes: string | null;
+  fit_score: number | null;
 }
 
 export interface LogApplicationRequest {
@@ -439,6 +529,23 @@ export function addJATSEvent(
   });
 }
 
+export function updateJATSEvent(
+  id: string,
+  eventId: number,
+  data: { event_type: string; event_date: string; notes?: string }
+) {
+  return request<JATSEvent>(`/jats/applications/${id}/events/${eventId}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+export function deleteJATSEvent(id: string, eventId: number) {
+  return request<{ deleted: number }>(`/jats/applications/${id}/events/${eventId}`, {
+    method: "DELETE",
+  });
+}
+
 export function checkDuplicate(company: string, role: string) {
   const qs = new URLSearchParams({ company, role });
   return request<{ exists: boolean; id?: string; status?: string; date_applied?: string }>(
@@ -502,36 +609,121 @@ export function fetchAnalytics() {
   return request<AnalyticsData>("/analytics/all");
 }
 
-// Orchestrator
-export interface FullCycleRequest {
-  name: string;
-  email: string;
-  raw_cv_text: string;
-  query?: string;
-  preferred_roles: string[];
-  locations: string[];
-  salary_min?: number;
-  remote_only: boolean;
-  max_results: number;
-  mode: string;
+// Saved credentials
+export interface SavedCredential { platform: string; email: string; }
+
+export function listCredentials() {
+  return request<SavedCredential[]>("/credentials/");
+}
+export function getCredential(platform: string) {
+  return request<SavedCredential>(`/credentials/${platform}`);
+}
+export function saveCredential(platform: string, email: string, password: string) {
+  return request<SavedCredential>(`/credentials/${platform}`, {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  });
+}
+export function deleteCredential(platform: string) {
+  return request<{ deleted: boolean }>(`/credentials/${platform}`, { method: "DELETE" });
+}
+// Returns full credentials including password — used to pre-fill the apply form
+export function getCredentialFull(platform: string) {
+  return request<{ email: string; password: string }>(`/credentials/${platform}/full`);
 }
 
-export function runFullCycle(data: FullCycleRequest) {
-  return request<Record<string, unknown>>("/orchestrator/full-cycle", {
+// ── Settings ──────────────────────────────────────────────────────────────
+
+export interface AppSettings {
+  ai_provider:             string;
+  ai_model:                string;
+  ai_score_model:          string;
+  lmstudio_base_url:       string;
+  lmstudio_model:          string;
+  ollama_base_url:         string;
+  auto_apply_threshold:    number;
+  match_reject_threshold:  number;
+  has_anthropic:           boolean;
+  has_openai:              boolean;
+  has_gemini:              boolean;
+  providers_available:     string[];
+}
+
+export function fetchSettings() {
+  return request<AppSettings>("/settings");
+}
+
+export function updateSettings(data: Partial<Omit<AppSettings, "has_anthropic" | "has_openai" | "has_gemini" | "providers_available">>) {
+  return request<{ ok: boolean; saved: string[] }>("/settings", {
     method: "POST",
     body: JSON.stringify(data),
   });
 }
 
-export function searchAndMatch(data: {
-  query: string;
-  locations: string[];
-  remote_only: boolean;
-  salary_min?: number;
-  max_results: number;
-  candidate: Record<string, unknown>;
-}) {
-  return request<Record<string, unknown>>("/orchestrator/search-match", {
+export function pingAIProvider(provider?: string) {
+  const path = provider ? `/settings/ping?provider=${provider}` : "/settings/ping";
+  return request<{ ok: boolean; provider: string; model: string; error: string | null }>(path, {
+    method: "POST",
+  });
+}
+
+export function resetSettings() {
+  return request<{ ok: boolean; message: string }>("/settings", { method: "DELETE" });
+}
+
+// ── Tailor (CV + JD → tailored resume & cover letter) ─────────────────────
+
+export interface TailorRequest {
+  cv_text: string;
+  job_description: string;
+  key_achievements?: string;
+  target_industry?: string;
+  career_narrative?: string;
+  portfolio_links?: string;
+  constraints?: string;
+}
+
+export interface TailorResponse {
+  resume: string;
+  cover_letter: string;
+  strategic_notes: string;
+}
+
+export function generateTailored(data: TailorRequest) {
+  return request<TailorResponse>("/tailor/generate", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export interface EvaluateResponse {
+  ats_score: number;
+  interview_probability: number;
+  strengths: string[];
+  gaps: string[];
+  keyword_matches: Record<string, "present" | "partial" | "missing">;
+  summary: string;
+  recommendation: string;
+}
+
+export function parseTailorFile(file: File) {
+  const form = new FormData();
+  form.append("file", file);
+  return request<{ text: string }>("/tailor/parse-file", {
+    method: "POST",
+    body: form,
+  });
+}
+
+export function evaluateTailor(data: { cv_text: string; job_description: string }) {
+  return request<EvaluateResponse>("/tailor/evaluate", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export function generateCoverLetter(data: { cv_text: string; job_description: string }) {
+  return request<{ cover_letter: string }>("/tailor/cover-letter", {
     method: "POST",
     body: JSON.stringify(data),
   });

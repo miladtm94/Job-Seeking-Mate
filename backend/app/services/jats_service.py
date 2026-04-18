@@ -2,7 +2,7 @@ import json
 import logging
 import re
 import uuid
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 from sqlalchemy import text
@@ -60,25 +60,249 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _LOGS_DIR = _PROJECT_ROOT / "data" / "logs"
 
 VALID_STATUSES = {"applied", "interview", "offer", "rejected", "withdrawn", "saved"}
+STATUS_EVENT_TO_STATUS = {
+    "applied": "applied",
+    "interview": "interview",
+    "phone_screen": "interview",
+    "interview_scheduled": "interview",
+    "interview_completed": "interview",
+    "offer": "offer",
+    "rejected": "rejected",
+    "rejection": "rejected",
+    "withdrawn": "withdrawn",
+}
 
 _EXTRACT_SYSTEM = (
-    "You are an expert HR analyst. Extract structured information from job descriptions. "
-    "Return ONLY valid JSON with these exact keys (use null for missing values):\n"
-    "role_title (string), company (string), location_city (string|null), "
-    "location_country (string|null), remote_type (remote|hybrid|onsite|null), "
-    "salary_min (integer|null, annual), salary_max (integer|null, annual), "
-    "currency (e.g. USD/AUD/GBP|null), required_skills (array of strings), "
-    "preferred_skills (array of strings), "
-    "seniority (junior|mid|senior|staff|principal|null), "
-    "employment_type (fulltime|parttime|contract|casual|null), "
-    "industry (e.g. FinTech/Healthcare/AI-ML/E-commerce/Consulting/null)"
+    "You are an expert HR analyst. Extract structured information from a job description.\n"
+    "Respond with ONLY a single valid JSON object — no explanation, no markdown, no extra text.\n"
+    "Use null (not \"N/A\", not \"\", not \"none\") for any field that is missing.\n"
+    "The JSON must have exactly these keys:\n\n"
+    "{\n"
+    '  "role_title": "Senior Software Engineer",\n'
+    '  "company": "Acme Corp",\n'
+    '  "location_city": "Sydney",\n'
+    '  "location_country": "Australia",\n'
+    '  "remote_type": "hybrid",\n'
+    '  "salary_min": 120000,\n'
+    '  "salary_max": 160000,\n'
+    '  "currency": "AUD",\n'
+    '  "required_skills": ["Python", "AWS", "SQL"],\n'
+    '  "preferred_skills": ["Kubernetes", "GraphQL"],\n'
+    '  "seniority": "senior",\n'
+    '  "employment_type": "fulltime",\n'
+    '  "industry": "FinTech"\n'
+    "}\n\n"
+    "Allowed values — remote_type: remote|hybrid|onsite|null. "
+    "seniority: junior|mid|senior|staff|principal|null. "
+    "employment_type: fulltime|parttime|contract|casual|null. "
+    "salary_min/salary_max must be annual integers or null."
 )
+
+
+# ── Structured tracking-form parser (no AI required) ─────────────────────────
+
+# Patterns that only appear in a structured tracking form, not in raw JDs
+_STRUCTURED_MARKERS = [
+    re.compile(r"^\s*company\s*\*", re.IGNORECASE | re.MULTILINE),
+    re.compile(r"^\s*role\s+title\s*\*", re.IGNORECASE | re.MULTILINE),
+    re.compile(r"^\s*date\s+applied\b", re.IGNORECASE | re.MULTILINE),
+    re.compile(r"^\s*salary\s+min\b", re.IGNORECASE | re.MULTILINE),
+    re.compile(r"^\s*salary\s+max\b", re.IGNORECASE | re.MULTILINE),
+    re.compile(r"^\s*fit\s+to\s+role\b", re.IGNORECASE | re.MULTILINE),
+    re.compile(r"^\s*work\s+type\b", re.IGNORECASE | re.MULTILINE),
+    re.compile(r"^\s*job\s+posting\s+url\b", re.IGNORECASE | re.MULTILINE),
+]
+
+# Ordered list: (label regex, field name)
+_FIELD_MAP = [
+    (re.compile(r"^company$", re.IGNORECASE), "company"),
+    (re.compile(r"^role\s+title$", re.IGNORECASE), "role_title"),
+    (re.compile(r"^platform$", re.IGNORECASE), "platform"),
+    (re.compile(r"^date\s+applied$", re.IGNORECASE), "date_applied"),
+    (re.compile(r"^city$", re.IGNORECASE), "location_city"),
+    (re.compile(r"^country$", re.IGNORECASE), "location_country"),
+    (re.compile(r"^work\s+type$", re.IGNORECASE), "remote_type"),
+    (re.compile(r"^salary\s+min$", re.IGNORECASE), "salary_min"),
+    (re.compile(r"^salary\s+max$", re.IGNORECASE), "salary_max"),
+    (re.compile(r"^currency$", re.IGNORECASE), "currency"),
+    (re.compile(r"^industry$", re.IGNORECASE), "industry"),
+    (re.compile(r"^seniority$", re.IGNORECASE), "seniority"),
+    (re.compile(r"^employment\s+type$", re.IGNORECASE), "employment_type"),
+    (re.compile(r"^job\s+posting\s+url$", re.IGNORECASE), "job_url"),
+    (re.compile(r"^(?:recruiter\s*/\s*)?contact\s+name$", re.IGNORECASE), "contact_name"),
+    (re.compile(r"^contact\s+email$", re.IGNORECASE), "contact_email"),
+    (re.compile(r"^fit\s+to\s+role$", re.IGNORECASE), "fit_score"),
+    (re.compile(r"^required\s+skills$", re.IGNORECASE), "required_skills"),
+    (re.compile(r"^preferred\s+skills$", re.IGNORECASE), "preferred_skills"),
+    (re.compile(r"^resume\s+used$", re.IGNORECASE), "resume_used"),
+    (re.compile(r"^notes$", re.IGNORECASE), "notes"),
+]
+
+
+def _detect_structured_form(text: str) -> bool:
+    """Return True if text looks like a structured application tracking form."""
+    return sum(1 for p in _STRUCTURED_MARKERS if p.search(text)) >= 3
+
+
+def _norm_label(raw: str) -> str:
+    """Strip trailing *, optional parentheticals, and whitespace from a field label."""
+    s = re.sub(r"\s*\*\s*$", "", raw)
+    s = re.sub(r"\s*\([^)]*\)\s*$", "", s)
+    return s.strip()
+
+
+def _parse_structured_form(text: str) -> ExtractedJobData:
+    """Parse a structured 'Label    Value' tracking form into ExtractedJobData."""
+    collected: dict[str, list[str]] = {}
+    current: str | None = None
+
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        # Skip pure separator lines (═══, ----, ====, etc.)
+        if not any(c.isalnum() for c in stripped):
+            continue
+
+        # Split on first run of 2+ spaces: 'Label Name    Value here'
+        m = re.match(r"^(.+?)\s{2,}(.*)$", stripped)
+        raw_label = m.group(1).strip() if m else stripped
+        value_part = m.group(2).strip() if m else ""
+
+        label_norm = _norm_label(raw_label)
+
+        # Check if this line starts a known field
+        matched: str | None = None
+        for pat, fname in _FIELD_MAP:
+            if pat.match(label_norm):
+                matched = fname
+                break
+
+        if matched:
+            current = matched
+            collected[current] = [value_part] if value_part else []
+        elif current:
+            collected[current].append(stripped)
+
+    # ── Helpers ──
+    def get(f: str) -> str:
+        return " ".join(collected.get(f, [])).strip()
+
+    def clean(v: str) -> str | None:
+        v = v.strip()
+        return None if (not v or re.match(r"^\[.*\]$", v)) else v
+
+    def extract_int(s: str) -> int | None:
+        m2 = re.search(r"[\d,]+", s)
+        if m2:
+            try:
+                return int(m2.group().replace(",", ""))
+            except ValueError:
+                return None
+        return None
+
+    def extract_fit(s: str) -> int | None:
+        hits = re.findall(r"(\d+)\s*/\s*100", s)
+        if hits:
+            try:
+                return min(100, max(0, int(hits[-1])))
+            except ValueError:
+                return None
+        return None
+
+    def parse_date(s: str) -> str | None:
+        s = re.sub(r"\s*\([^)]*\)", "", s).strip()
+        for fmt in ("%B %d, %Y", "%d %B %Y", "%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y"):
+            try:
+                return datetime.strptime(s, fmt).strftime("%Y-%m-%d")
+            except ValueError:
+                pass
+        return None
+
+    def norm_remote(s: str) -> str | None:
+        sl = s.lower()
+        if "hybrid" in sl:
+            return "hybrid"
+        if "remote" in sl and not any(x in sl for x in ("onsite", "on-site", "office")):
+            return "remote"
+        if any(x in sl for x in ("onsite", "on-site", "on site", "office", "in-person")):
+            return "onsite"
+        return None
+
+    def norm_seniority(s: str) -> str | None:
+        sl = s.lower()
+        if "principal" in sl:
+            return "principal"
+        if "staff" in sl:
+            return "staff"
+        if "senior" in sl:
+            return "senior"
+        if "mid" in sl:
+            return "mid"
+        if any(x in sl for x in ("junior", "entry", "graduate", "intern")):
+            return "junior"
+        return None
+
+    def norm_employment(s: str) -> str | None:
+        sl = s.lower()
+        if "full" in sl:
+            return "fulltime"
+        if "part" in sl:
+            return "parttime"
+        if "contract" in sl:
+            return "contract"
+        if "casual" in sl:
+            return "casual"
+        return None
+
+    def norm_platform(s: str) -> str | None:
+        sl = s.lower()
+        for p in ("linkedin", "seek", "indeed", "glassdoor"):
+            if p in sl:
+                return p.capitalize()
+        if any(x in sl for x in ("referral", "referred")):
+            return "Referral"
+        if any(x in sl for x in ("direct", "company", "career")):
+            return "Direct"
+        first = s.split("/")[0].strip()
+        return first or None
+
+    def split_skills(s: str) -> list[str]:
+        return [sk.strip() for sk in s.split(",") if sk.strip()]
+
+    return ExtractedJobData(
+        company=clean(get("company")) or "",
+        role_title=clean(get("role_title")) or "",
+        location_city=clean(get("location_city")),
+        location_country=clean(get("location_country")),
+        remote_type=norm_remote(get("remote_type")),  # type: ignore[arg-type]
+        salary_min=extract_int(get("salary_min")),
+        salary_max=extract_int(get("salary_max")),
+        currency=clean(get("currency")),
+        seniority=norm_seniority(get("seniority")),  # type: ignore[arg-type]
+        employment_type=norm_employment(get("employment_type")),  # type: ignore[arg-type]
+        industry=clean(get("industry")),
+        required_skills=split_skills(get("required_skills")),
+        preferred_skills=split_skills(get("preferred_skills")),
+        platform=norm_platform(get("platform")),
+        date_applied=parse_date(get("date_applied")),
+        contact_name=clean(get("contact_name")),
+        contact_email=clean(get("contact_email")),
+        job_url=clean(get("job_url")),
+        notes=clean(get("notes")),
+        fit_score=extract_fit(get("fit_score")),
+    )
 
 
 def extract_job_data(description: str) -> ExtractedJobData:
     """Run NLP extraction on a job description. Falls back to empty model on failure."""
     if not description.strip():
         return ExtractedJobData()
+
+    # Structured tracking-form paste: parse with regex, no AI needed
+    if _detect_structured_form(description):
+        logger.info("Detected structured tracking form — using regex parser")
+        return _parse_structured_form(description)
 
     raw = ai_complete(_EXTRACT_SYSTEM, description[:4000], max_tokens=1024)
     if not raw:
@@ -98,7 +322,7 @@ def extract_job_data(description: str) -> ExtractedJobData:
         data = json.loads(text)
         return ExtractedJobData.model_validate(data)
     except Exception:
-        logger.warning("Failed to parse AI extraction JSON, returning empty")
+        logger.warning("Failed to parse AI extraction JSON. Raw response was: %r", raw[:500])
         return ExtractedJobData()
 
 
@@ -266,16 +490,73 @@ def add_event(db: Session, app_id: str, payload: AddEventRequest) -> EventRespon
         notes=payload.notes,
     )
     db.add(event)
+    next_status = _status_for_event_type(payload.event_type)
+    if next_status:
+        entry.status = next_status
     db.commit()
     db.refresh(event)
     return _event_to_response(event)
+
+
+def update_event(
+    db: Session,
+    app_id: str,
+    event_id: int,
+    payload: AddEventRequest,
+) -> EventResponse | None:
+    event = (
+        db.query(ApplicationEvent)
+        .filter(
+            ApplicationEvent.id == event_id,
+            ApplicationEvent.application_id == app_id,
+        )
+        .first()
+    )
+    if not event:
+        return None
+
+    event.event_type = payload.event_type
+    event.event_date = payload.event_date
+    event.notes = payload.notes
+
+    entry = db.query(ApplicationEntry).filter(ApplicationEntry.id == app_id).first()
+    if not entry:
+        return None
+
+    _sync_status_from_events(db, entry)
+    db.commit()
+    db.refresh(event)
+    return _event_to_response(event)
+
+
+def delete_event(db: Session, app_id: str, event_id: int) -> bool:
+    event = (
+        db.query(ApplicationEvent)
+        .filter(
+            ApplicationEvent.id == event_id,
+            ApplicationEvent.application_id == app_id,
+        )
+        .first()
+    )
+    if not event:
+        return False
+
+    entry = db.query(ApplicationEntry).filter(ApplicationEntry.id == app_id).first()
+    if not entry:
+        return False
+
+    db.delete(event)
+    db.flush()
+    _sync_status_from_events(db, entry)
+    db.commit()
+    return True
 
 
 def get_events(db: Session, app_id: str) -> list[EventResponse]:
     events = (
         db.query(ApplicationEvent)
         .filter(ApplicationEvent.application_id == app_id)
-        .order_by(ApplicationEvent.event_date.asc())
+        .order_by(ApplicationEvent.event_date.asc(), ApplicationEvent.id.asc())
         .all()
     )
     return [_event_to_response(e) for e in events]
@@ -385,6 +666,24 @@ def _event_to_response(event: ApplicationEvent) -> EventResponse:
         event_date=event.event_date,
         notes=event.notes,
     )
+
+
+def _status_for_event_type(event_type: str) -> str | None:
+    return STATUS_EVENT_TO_STATUS.get(event_type.strip().lower())
+
+
+def _sync_status_from_events(db: Session, entry: ApplicationEntry) -> None:
+    latest_status_event = (
+        db.query(ApplicationEvent)
+        .filter(ApplicationEvent.application_id == entry.id)
+        .order_by(ApplicationEvent.event_date.desc(), ApplicationEvent.id.desc())
+        .all()
+    )
+    for event in latest_status_event:
+        synced_status = _status_for_event_type(event.event_type)
+        if synced_status:
+            entry.status = synced_status
+            return
 
 
 def _write_json_backup(app_id: str, payload: LogApplicationRequest) -> None:

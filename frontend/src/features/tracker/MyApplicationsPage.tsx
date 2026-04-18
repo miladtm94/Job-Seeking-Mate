@@ -1,14 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   addJATSEvent,
+  deleteJATSEvent,
   deleteJATSApplication,
   fetchJATSApplication,
   fetchJATSApplications,
+  updateJATSEvent,
   updateJATSApplication,
 } from "../../api/client";
-import type { JATSApplicationDetail, JATSApplicationSummary } from "../../api/client";
+import type {
+  JATSApplicationDetail,
+  JATSApplicationSummary,
+  JATSEvent,
+} from "../../api/client";
 
 const PLATFORMS = ["LinkedIn", "Seek", "Indeed", "Glassdoor", "Direct", "Referral", "Other"];
 const CURRENCIES = ["AUD", "USD", "GBP", "EUR", "CAD", "NZD", "SGD"];
@@ -17,7 +23,7 @@ const SENIORITY_LEVELS = ["junior", "mid", "senior", "staff", "principal"];
 const EMPLOYMENT_TYPES = ["fulltime", "parttime", "contract", "casual"];
 const STATUSES = ["applied", "saved", "interview", "offer", "rejected", "withdrawn"];
 const INDUSTRIES = [
-  "AI/ML", "FinTech", "SaaS", "Cybersecurity", "Healthcare/MedTech",
+  "DigiTech", "FinTech", "Cybersecurity", "Healthcare/MedTech",
   "E-commerce", "Consulting", "Gaming", "Telecommunications", "Other",
 ];
 // Industries stored as canonical keys; anything else is treated as custom "Other"
@@ -33,6 +39,12 @@ interface EditDraft {
   contact_name: string; contact_email: string;
   follow_up_date: string; fit_score: string;
   required_skills: string; preferred_skills: string;
+}
+
+interface EventDraft {
+  event_type: string;
+  event_date: string;
+  notes: string;
 }
 
 function fitScoreColor(score: number) {
@@ -65,6 +77,18 @@ const STATUS_TRANSITIONS: Record<string, { label: string; status: string }[]> = 
   offer: [{ label: "Withdrawn", status: "withdrawn" }],
 };
 
+const EVENT_TYPES = [
+  "applied",
+  "email_received",
+  "phone_screen",
+  "interview_scheduled",
+  "interview_completed",
+  "rejection",
+  "offer",
+  "withdrawn",
+  "other",
+];
+
 function salaryDisplay(app: JATSApplicationSummary) {
   if (!app.salary_min && !app.salary_max) return null;
   const parts: string[] = [];
@@ -73,7 +97,92 @@ function salaryDisplay(app: JATSApplicationSummary) {
   return parts.join("–");
 }
 
-function EventTimeline({ events }: { events: JATSApplicationDetail["events"] }) {
+function formatEventType(eventType: string) {
+  return eventType.replace(/_/g, " ");
+}
+
+function EventEditor({
+  draft,
+  onChange,
+  onSave,
+  onCancel,
+  isPending,
+  submitLabel,
+}: {
+  draft: EventDraft;
+  onChange: (key: keyof EventDraft, value: string) => void;
+  onSave: () => void;
+  onCancel: () => void;
+  isPending: boolean;
+  submitLabel: string;
+}) {
+  return (
+    <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <select
+          value={draft.event_type}
+          onChange={(e) => onChange("event_type", e.target.value)}
+          style={{ flex: 1, padding: "6px 8px", borderRadius: 6, border: "1px solid var(--border)", fontSize: "0.85rem" }}
+        >
+          {EVENT_TYPES.map((type) => (
+            <option key={type} value={type}>
+              {formatEventType(type)}
+            </option>
+          ))}
+        </select>
+        <input
+          type="date"
+          value={draft.event_date}
+          onChange={(e) => onChange("event_date", e.target.value)}
+          style={{ padding: "6px 8px", borderRadius: 6, border: "1px solid var(--border)", fontSize: "0.85rem" }}
+        />
+      </div>
+      <input
+        value={draft.notes}
+        onChange={(e) => onChange("notes", e.target.value)}
+        placeholder="Notes (optional)"
+        style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid var(--border)", fontSize: "0.85rem" }}
+      />
+      <div style={{ display: "flex", gap: 8 }}>
+        <button
+          className="btn-small"
+          style={{ background: "var(--accent)", color: "#fff", borderColor: "var(--accent)" }}
+          onClick={onSave}
+          disabled={isPending}
+        >
+          {isPending ? "Saving..." : submitLabel}
+        </button>
+        <button className="btn-small" onClick={onCancel} disabled={isPending}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function EventTimeline({
+  events,
+  editingEventId,
+  eventDraft,
+  onStartEdit,
+  onChangeDraft,
+  onSaveEdit,
+  onCancelEdit,
+  onDelete,
+  isSaving,
+  isDeleting,
+}: {
+  events: JATSEvent[];
+  editingEventId: number | null;
+  eventDraft: EventDraft | null;
+  onStartEdit: (event: JATSEvent) => void;
+  onChangeDraft: (key: keyof EventDraft, value: string) => void;
+  onSaveEdit: () => void;
+  onCancelEdit: () => void;
+  onDelete: (event: JATSEvent) => void;
+  isSaving: boolean;
+  isDeleting: boolean;
+}) {
   if (!events.length) return <p className="muted" style={{ fontSize: "0.85rem" }}>No events yet</p>;
   return (
     <div className="event-timeline">
@@ -81,9 +190,39 @@ function EventTimeline({ events }: { events: JATSApplicationDetail["events"] }) 
         <div key={e.id} className="event-row">
           <div className="event-dot" />
           <div className="event-content">
-            <span className="event-type capitalize">{e.event_type.replace("_", " ")}</span>
-            <span className="event-date muted">{e.event_date}</span>
-            {e.notes && <p className="event-notes muted">{e.notes}</p>}
+            {editingEventId === e.id && eventDraft ? (
+              <EventEditor
+                draft={eventDraft}
+                onChange={onChangeDraft}
+                onSave={onSaveEdit}
+                onCancel={onCancelEdit}
+                isPending={isSaving}
+                submitLabel="Update Event"
+              />
+            ) : (
+              <>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                    <span className="event-type capitalize">{formatEventType(e.event_type)}</span>
+                    <span className="event-date muted">{e.event_date}</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button className="btn-small" onClick={() => onStartEdit(e)}>
+                      Edit
+                    </button>
+                    <button
+                      className="btn-small"
+                      style={{ color: "var(--red)", borderColor: "var(--red)" }}
+                      onClick={() => onDelete(e)}
+                      disabled={isDeleting}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+                {e.notes && <p className="event-notes muted">{e.notes}</p>}
+              </>
+            )}
           </div>
         </div>
       ))}
@@ -93,17 +232,27 @@ function EventTimeline({ events }: { events: JATSApplicationDetail["events"] }) 
 
 export function MyApplicationsPage() {
   const queryClient = useQueryClient();
+  const [searchParams] = useSearchParams();
 
   const [statusFilter, setStatusFilter] = useState("");
   const [platformFilter, setPlatformFilter] = useState("");
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // Open a specific application when arriving from a deep link (e.g. dashboard follow-up)
+  useEffect(() => {
+    const idFromUrl = searchParams.get("id");
+    if (idFromUrl) setSelectedId(idFromUrl);
+  }, [searchParams]);
   const [isEditing, setIsEditing] = useState(false);
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
   const [addingEvent, setAddingEvent] = useState(false);
-  const [newEventType, setNewEventType] = useState("interview_scheduled");
-  const [newEventDate, setNewEventDate] = useState(new Date().toISOString().slice(0, 10));
-  const [newEventNote, setNewEventNote] = useState("");
+  const [eventDraft, setEventDraft] = useState<EventDraft>({
+    event_type: "interview_scheduled",
+    event_date: new Date().toISOString().slice(0, 10),
+    notes: "",
+  });
+  const [editingEventId, setEditingEventId] = useState<number | null>(null);
 
   const startEdit = (d: typeof detail) => {
     if (!d) return;
@@ -138,6 +287,24 @@ export function MyApplicationsPage() {
   const set = (key: keyof EditDraft) => (e: { target: { value: string } }) =>
     setEditDraft((d) => d ? { ...d, [key]: e.target.value } : d);
 
+  const setEventField = (key: keyof EventDraft, value: string) =>
+    setEventDraft((draft) => ({ ...draft, [key]: value }));
+
+  const resetEventDraft = () =>
+    setEventDraft({
+      event_type: "interview_scheduled",
+      event_date: new Date().toISOString().slice(0, 10),
+      notes: "",
+    });
+
+  const refreshTrackerQueries = () => {
+    queryClient.invalidateQueries({ queryKey: ["jats-applications"] });
+    if (selectedId) {
+      queryClient.invalidateQueries({ queryKey: ["jats-application", selectedId] });
+    }
+    queryClient.invalidateQueries({ queryKey: ["analytics"] });
+  };
+
   const appsQuery = useQuery({
     queryKey: ["jats-applications", statusFilter, platformFilter, search],
     queryFn: () =>
@@ -155,18 +322,15 @@ export function MyApplicationsPage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Record<string, string> }) =>
+    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
       updateJATSApplication(id, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["jats-applications"] });
-      queryClient.invalidateQueries({ queryKey: ["jats-application", selectedId] });
-    },
+    onSuccess: refreshTrackerQueries,
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deleteJATSApplication(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["jats-applications"] });
+      refreshTrackerQueries();
       setSelectedId(null);
     },
   });
@@ -174,14 +338,38 @@ export function MyApplicationsPage() {
   const addEventMutation = useMutation({
     mutationFn: () =>
       addJATSEvent(selectedId!, {
-        event_type: newEventType,
-        event_date: newEventDate,
-        notes: newEventNote,
+        event_type: eventDraft.event_type,
+        event_date: eventDraft.event_date,
+        notes: eventDraft.notes,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["jats-application", selectedId] });
+      refreshTrackerQueries();
       setAddingEvent(false);
-      setNewEventNote("");
+      resetEventDraft();
+    },
+  });
+
+  const updateEventMutation = useMutation({
+    mutationFn: () => {
+      if (!selectedId || editingEventId == null) {
+        return Promise.reject(new Error("No event selected"));
+      }
+      return updateJATSEvent(selectedId, editingEventId, eventDraft);
+    },
+    onSuccess: () => {
+      refreshTrackerQueries();
+      setEditingEventId(null);
+      resetEventDraft();
+    },
+  });
+
+  const deleteEventMutation = useMutation({
+    mutationFn: ({ appId, eventId }: { appId: string; eventId: number }) =>
+      deleteJATSEvent(appId, eventId),
+    onSuccess: () => {
+      refreshTrackerQueries();
+      setEditingEventId(null);
+      resetEventDraft();
     },
   });
 
@@ -218,13 +406,26 @@ export function MyApplicationsPage() {
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["jats-applications"] });
-      queryClient.invalidateQueries({ queryKey: ["jats-application", selectedId] });
-      queryClient.invalidateQueries({ queryKey: ["analytics"] });
+      refreshTrackerQueries();
       setIsEditing(false);
       setEditDraft(null);
     },
   });
+
+  const startEventEdit = (event: JATSEvent) => {
+    setAddingEvent(false);
+    setEditingEventId(event.id);
+    setEventDraft({
+      event_type: event.event_type,
+      event_date: event.event_date,
+      notes: event.notes,
+    });
+  };
+
+  const cancelEventEdit = () => {
+    setEditingEventId(null);
+    resetEventDraft();
+  };
 
   const apps = appsQuery.data?.applications ?? [];
   const total = appsQuery.data?.total ?? 0;
@@ -324,7 +525,14 @@ export function MyApplicationsPage() {
               {apps.map((app) => (
                 <div
                   key={app.id}
-                  onClick={() => { setSelectedId(app.id); setIsEditing(false); setEditDraft(null); }}
+                  onClick={() => {
+                    setSelectedId(app.id);
+                    setIsEditing(false);
+                    setEditDraft(null);
+                    setAddingEvent(false);
+                    setEditingEventId(null);
+                    resetEventDraft();
+                  }}
                   style={{
                     padding: "14px 16px",
                     borderBottom: "1px solid var(--border)",
@@ -633,55 +841,47 @@ export function MyApplicationsPage() {
 
                 {/* Timeline */}
                 <h4 style={{ marginTop: 14 }}>Timeline</h4>
-                <EventTimeline events={detail.events} />
+                <EventTimeline
+                  events={detail.events}
+                  editingEventId={editingEventId}
+                  eventDraft={eventDraft}
+                  onStartEdit={startEventEdit}
+                  onChangeDraft={setEventField}
+                  onSaveEdit={() => updateEventMutation.mutate()}
+                  onCancelEdit={cancelEventEdit}
+                  onDelete={(event) => {
+                    if (confirm(`Delete the ${formatEventType(event.event_type)} event?`)) {
+                      deleteEventMutation.mutate({ appId: detail.id, eventId: event.id });
+                    }
+                  }}
+                  isSaving={updateEventMutation.isPending}
+                  isDeleting={deleteEventMutation.isPending}
+                />
 
                 {/* Add event */}
                 {!addingEvent ? (
                   <button
                     className="btn-small"
                     style={{ marginTop: 10 }}
-                    onClick={() => setAddingEvent(true)}
+                    onClick={() => {
+                      cancelEventEdit();
+                      setAddingEvent(true);
+                    }}
                   >
                     + Add Event
                   </button>
                 ) : (
-                  <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <select
-                        value={newEventType}
-                        onChange={(e) => setNewEventType(e.target.value)}
-                        style={{ flex: 1, padding: "6px 8px", borderRadius: 6, border: "1px solid var(--border)", fontSize: "0.85rem" }}
-                      >
-                        {["applied", "email_received", "phone_screen", "interview_scheduled",
-                          "interview_completed", "rejection", "offer", "withdrawn", "other"].map((t) => (
-                          <option key={t} value={t}>{t.replace("_", " ")}</option>
-                        ))}
-                      </select>
-                      <input
-                        type="date"
-                        value={newEventDate}
-                        onChange={(e) => setNewEventDate(e.target.value)}
-                        style={{ padding: "6px 8px", borderRadius: 6, border: "1px solid var(--border)", fontSize: "0.85rem" }}
-                      />
-                    </div>
-                    <input
-                      value={newEventNote}
-                      onChange={(e) => setNewEventNote(e.target.value)}
-                      placeholder="Notes (optional)"
-                      style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid var(--border)", fontSize: "0.85rem" }}
-                    />
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <button
-                        className="btn-small"
-                        style={{ background: "var(--accent)", color: "#fff", borderColor: "var(--accent)" }}
-                        onClick={() => addEventMutation.mutate()}
-                        disabled={addEventMutation.isPending}
-                      >
-                        Save Event
-                      </button>
-                      <button className="btn-small" onClick={() => setAddingEvent(false)}>Cancel</button>
-                    </div>
-                  </div>
+                  <EventEditor
+                    draft={eventDraft}
+                    onChange={setEventField}
+                    onSave={() => addEventMutation.mutate()}
+                    onCancel={() => {
+                      setAddingEvent(false);
+                      resetEventDraft();
+                    }}
+                    isPending={addEventMutation.isPending}
+                    submitLabel="Save Event"
+                  />
                 )}
 
                 {/* Actions */}

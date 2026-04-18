@@ -75,6 +75,11 @@ data/resumes/*
 !data/resumes/.gitkeep
 data/covers/*
 !data/covers/.gitkeep
+data/browser-profiles/
+data/user_settings.json
+
+# Backend runtime data (AI settings, SQLite DB)
+backend/data/
 
 # Claude Code AI memory (local only)
 .claude/
