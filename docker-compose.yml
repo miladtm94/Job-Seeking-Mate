@@ -1,18 +1,37 @@
+name: job-seeking-mate
+
+x-backend-env: &backend-env
+  DATABASE_URL: postgresql+psycopg://jobmate:jobmate@db:5432/jobmate
+  REDIS_URL: redis://redis:6379/0
+
 services:
   api:
     build:
       context: .
       dockerfile: infra/docker/backend.Dockerfile
+    command: ["uvicorn", "app.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"]
     env_file:
       - .env
+    environment:
+      <<: *backend-env
     ports:
-      - "8000:8000"
+      - "${API_PORT:-8000}:8000"
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./backend:/app/backend
       - ./data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=2)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
 
   worker:
     build:
@@ -21,9 +40,17 @@ services:
     command: ["python", "-m", "app.workers.queue"]
     env_file:
       - .env
+    environment:
+      <<: *backend-env
     depends_on:
-      - db
-      - redis
+      api:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./backend:/app/backend
       - ./data:/app/data
@@ -33,12 +60,19 @@ services:
       context: .
       dockerfile: infra/docker/frontend.Dockerfile
     ports:
-      - "5173:5173"
+      - "${WEB_PORT:-5173}:5173"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     volumes:
       - ./frontend:/app/frontend
       - frontend_node_modules:/app/frontend/node_modules
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:5173').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
 
   db:
     image: postgres:16-alpine
@@ -47,14 +81,24 @@ services:
       POSTGRES_USER: jobmate
       POSTGRES_PASSWORD: jobmate
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jobmate -d jobmate"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
 volumes:
   pg_data:

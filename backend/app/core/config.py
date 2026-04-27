@@ -5,8 +5,10 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# ── override persistence ───────────────────────────────────────────────────────
+# ── env + override persistence ─────────────────────────────────────────────────
 
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_ENV_FILE = _REPO_ROOT / ".env"
 _OVERRIDE_FILE = Path("data/user_settings.json")
 
 # Maps JSON key → environment variable name (pydantic-settings reads these)
@@ -42,7 +44,12 @@ def apply_user_overrides() -> None:
 # ── settings model ─────────────────────────────────────────────────────────────
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore", env_ignore_empty=True)
+    model_config = SettingsConfigDict(
+        env_file=_ENV_FILE,
+        env_file_encoding="utf-8",
+        extra="ignore",
+        env_ignore_empty=True,
+    )
 
     app_env: str = "development"
     app_name: str = "job-seeking-mate-api"

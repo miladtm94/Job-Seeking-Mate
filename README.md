@@ -29,16 +29,50 @@ Switch AI provider and model at runtime via the UI — no restart required. Supp
 
 ## Quick Start
 
-**Prerequisites:** Python 3.11+ and Node.js 20+
+**Prerequisites for the recommended path:** Docker Desktop or Docker Engine with Docker Compose.
 
 ```bash
 git clone https://github.com/miladtm94/Job-Seeking-Mate.git
 cd Job-Seeking-Mate
 
 # Configure environment
-cp .env.example backend/.env
-# Edit backend/.env — set your AI provider and API key (see AI Setup below)
+cp .env.example .env
+# Edit .env — set your AI provider and API key (see AI Setup below)
 
+# Build and run everything in Docker, in the background
+make up
+```
+
+Open **http://localhost:5173** — default login: `admin` / `jobmate` (change in `.env`). API docs are at **http://localhost:8000/docs**.
+
+### Docker Workflow
+
+Use Docker/Compose for normal daily start and stop:
+
+```bash
+make up       # build and run in the background
+make stop     # pause this app when you are not using it
+make start    # start it again, creating containers if needed
+make restart  # restart existing services
+make status   # see what is running
+make logs     # follow logs
+make down     # remove containers, keeping database volume data
+make rebuild  # rebuild images from scratch and run in the background
+make quick-update  # pull latest git changes, rebuild, and run in the background
+```
+
+You can also use Docker Desktop: look for the Compose app named **job-seeking-mate** and start/stop it there.
+
+Recommended daily habit if you juggle multiple apps on one laptop:
+
+- Use `make start` / `make stop` for this app most of the time.
+- Use `make down` only when you want to remove the containers. Your Postgres data stays in the Docker volume unless you explicitly remove volumes.
+
+### Local Manual Workflow
+
+If you specifically want to run without Docker:
+
+```bash
 # Terminal 1 — backend
 cd backend
 python -m venv .venv && source .venv/bin/activate
@@ -51,13 +85,11 @@ npm install
 npm run dev
 ```
 
-Open **http://localhost:5173** — default login: `admin` / `jobmate` (change in `backend/.env`)
-
 ---
 
 ## AI Setup
 
-All AI features require at least one provider. Set your choice in `backend/.env`:
+All AI features require at least one provider. Set your choice in `.env`:
 
 ### Option 1 — Google Gemini (free tier recommended)
 
@@ -73,11 +105,13 @@ GEMINI_API_KEY=your_key_here
 
 ```env
 AI_PROVIDER=lmstudio
-LMSTUDIO_BASE_URL=http://localhost:1234/v1
+LMSTUDIO_BASE_URL=http://host.docker.internal:1234/v1
 LMSTUDIO_MODEL=your-loaded-model-id
 ```
 
 Download [LM Studio](https://lmstudio.ai), load any model (Llama, Qwen, Phi), start the local server, and copy the model ID exactly as shown in the server panel.
+
+If you run the backend manually outside Docker, use `http://localhost:1234/v1` instead.
 
 ### Option 3 — Anthropic Claude
 
@@ -100,10 +134,12 @@ OPENAI_API_KEY=your_key_here
 ```env
 AI_PROVIDER=ollama
 AI_MODEL=llama3.2
-OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_BASE_URL=http://host.docker.internal:11434
 ```
 
 > You can also switch provider and model live from the **Settings** page in the UI — no restart needed.
+
+If you run the backend manually outside Docker, use `http://localhost:11434` instead.
 
 ---
 
@@ -156,7 +192,7 @@ Interactive API docs: **http://localhost:8000/docs**
 
 - All application data is stored **locally** in `data/` — never sent to any external server except your chosen AI provider for generation tasks
 - The `data/` directory is gitignored — your applications and resumes are never committed to version control
-- API keys live only in `backend/.env`, which is also gitignored
+- API keys live only in `.env`, which is gitignored
 
 ---
 
