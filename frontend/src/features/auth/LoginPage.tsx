@@ -161,7 +161,7 @@ export function LoginPage() {
         </form>
 
         <p style={{ textAlign: "center", marginTop: 20, color: "#4a5568", fontSize: "0.76rem" }}>
-          Credentials are set in the backend <code style={{ background: "rgba(255,255,255,0.05)", padding: "2px 6px", borderRadius: 4, color: "#a78bfa" }}>backend/.env</code> file
+          Credentials are set in the repo-root <code style={{ background: "rgba(255,255,255,0.05)", padding: "2px 6px", borderRadius: 4, color: "#a78bfa" }}>.env</code> file
         </p>
       </div>
     </div>

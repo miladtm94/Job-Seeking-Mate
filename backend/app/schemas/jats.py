@@ -126,6 +126,17 @@ class EventResponse(BaseModel):
     notes: str
 
 
+class DocumentResponse(BaseModel):
+    id: int
+    application_id: str
+    category: Literal["resume", "cover_letter", "other"]
+    filename: str
+    mime_type: str | None = None
+    file_size: int
+    created_at: str
+    download_url: str
+
+
 # ── Responses ────────────────────────────────────────────────────────────────
 
 class SkillResponse(BaseModel):
@@ -155,6 +166,7 @@ class ApplicationSummary(BaseModel):
     contact_name: str | None = None
     follow_up_date: str | None = None
     fit_score: int | None = None
+    document_count: int = 0
 
 
 class ApplicationDetail(ApplicationSummary):
@@ -167,6 +179,7 @@ class ApplicationDetail(ApplicationSummary):
     answers_text: str = ""
     contact_email: str | None = None
     contact_linkedin: str | None = None
+    documents: list[DocumentResponse] = Field(default_factory=list)
 
 
 class ApplicationListResponse(BaseModel):

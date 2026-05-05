@@ -1,6 +1,7 @@
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.db.jats_db import get_jats_db
@@ -8,6 +9,7 @@ from app.schemas.jats import (
     AddEventRequest,
     ApplicationDetail,
     ApplicationListResponse,
+    DocumentResponse,
     EventResponse,
     ExtractedJobData,
     ExtractRequest,
@@ -58,6 +60,43 @@ def get_application(
     if not result:
         raise HTTPException(status_code=404, detail="Application not found")
     return result
+
+
+@router.post("/applications/{app_id}/documents", response_model=DocumentResponse)
+async def upload_document(
+    app_id: str,
+    category: str = Form(...),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_jats_db),
+) -> DocumentResponse:
+    result = await jats_service.upload_document(db, app_id, category, file)
+    if not result:
+        raise HTTPException(status_code=404, detail="Application not found")
+    return result
+
+
+@router.get("/applications/{app_id}/documents/{document_id}/download")
+def download_document(
+    app_id: str,
+    document_id: int,
+    db: Session = Depends(get_jats_db),
+) -> FileResponse:
+    result = jats_service.get_document_download(db, app_id, document_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Document not found")
+    path, filename, media_type = result
+    return FileResponse(path=path, filename=filename, media_type=media_type)
+
+
+@router.delete("/applications/{app_id}/documents/{document_id}")
+def delete_document(
+    app_id: str,
+    document_id: int,
+    db: Session = Depends(get_jats_db),
+) -> dict:
+    if not jats_service.delete_document(db, app_id, document_id):
+        raise HTTPException(status_code=404, detail="Document not found")
+    return {"deleted": document_id}
 
 
 @router.patch("/applications/{app_id}", response_model=ApplicationDetail)

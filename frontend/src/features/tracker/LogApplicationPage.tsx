@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { checkDuplicate, extractJobData, logApplication } from "../../api/client";
+import { checkDuplicate, extractJobData, logApplication, uploadJATSDocument } from "../../api/client";
 import type { ExtractedJobData, LogApplicationRequest } from "../../api/client";
 
 const PLATFORMS = ["LinkedIn", "Seek", "Indeed", "Glassdoor", "Direct", "Referral", "Other"];
@@ -10,10 +10,7 @@ const REMOTE_TYPES = ["remote", "hybrid", "onsite"];
 const SENIORITY_LEVELS = ["junior", "mid", "senior", "staff", "principal"];
 const EMPLOYMENT_TYPES = ["fulltime", "parttime", "contract", "casual"];
 const STATUSES = ["applied", "saved", "interview", "offer", "rejected", "withdrawn"];
-const INDUSTRIES = [
-  "DigiTech", "FinTech", "Cybersecurity", "Healthcare/MedTech",
-  "E-commerce", "Consulting", "Gaming", "Telecommunications", "Other",
-];
+const DOCUMENT_ACCEPT = ".pdf,.txt,.doc,.docx";
 
 function fitScoreColor(score: number) {
   if (score >= 81) return "#2e8b57";   // green
@@ -24,6 +21,11 @@ function fitScoreColor(score: number) {
 
 function today() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function formatSelectedFiles(files: File[]) {
+  if (!files.length) return "No files selected";
+  return files.map((file) => file.name).join(", ");
 }
 
 export function LogApplicationPage() {
@@ -55,12 +57,17 @@ export function LogApplicationPage() {
   const [jobUrl, setJobUrl] = useState("");
   const [contactName, setContactName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
-  const [customIndustry, setCustomIndustry] = useState("");
   const [fitScore, setFitScore] = useState("");
   const [followUpDate, setFollowUpDate] = useState("");
+  const [resumeFile, setResumeFile] = useState<File | null>(null);
+  const [coverLetterFile, setCoverLetterFile] = useState<File | null>(null);
+  const [otherFiles, setOtherFiles] = useState<File[]>([]);
   const [dupWarning, setDupWarning] = useState<{ id: string; status: string; date_applied: string } | null>(null);
   const [dupConfirmed, setDupConfirmed] = useState(false);
   const [savedId, setSavedId] = useState<string | null>(null);
+  const [savedDocumentCount, setSavedDocumentCount] = useState(0);
+  const [uploadWarning, setUploadWarning] = useState<string | null>(null);
+  const [fileInputKey, setFileInputKey] = useState(0);
 
   const [extractedAny, setExtractedAny] = useState(false);
 
@@ -76,15 +83,7 @@ export function LogApplicationPage() {
       if (data.salary_min) { setSalaryMin(String(data.salary_min)); anyField = true; }
       if (data.salary_max) { setSalaryMax(String(data.salary_max)); anyField = true; }
       if (data.currency) { setCurrency(data.currency); anyField = true; }
-      if (data.industry) {
-        anyField = true;
-        if (INDUSTRIES.includes(data.industry)) {
-          setIndustry(data.industry);
-        } else {
-          setIndustry("Other");
-          setCustomIndustry(data.industry);
-        }
-      }
+      if (data.industry) { setIndustry(data.industry); anyField = true; }
       if (data.seniority) { setSeniority(data.seniority); anyField = true; }
       if (data.employment_type) { setEmploymentType(data.employment_type); anyField = true; }
       if (data.required_skills?.length) { setRequiredSkills(data.required_skills.join(", ")); anyField = true; }
@@ -127,10 +126,39 @@ export function LogApplicationPage() {
   });
 
   const logMutation = useMutation({
-    mutationFn: (payload: LogApplicationRequest) => logApplication(payload),
-    onSuccess: (data) => {
-      setSavedId(data.id);
+    mutationFn: async (payload: LogApplicationRequest) => {
+      const saved = await logApplication(payload);
+      const uploads: Array<Promise<unknown>> = [];
+      const failures: string[] = [];
+
+      const queueUpload = (category: "resume" | "cover_letter" | "other", file: File) => {
+        uploads.push(
+          uploadJATSDocument(saved.id, { category, file }).catch((error: Error) => {
+            failures.push(`${file.name}: ${error.message}`);
+          })
+        );
+      };
+
+      if (resumeFile) queueUpload("resume", resumeFile);
+      if (coverLetterFile) queueUpload("cover_letter", coverLetterFile);
+      otherFiles.forEach((file) => queueUpload("other", file));
+
+      if (uploads.length) {
+        await Promise.all(uploads);
+      }
+
+      return {
+        saved,
+        uploadedCount: [resumeFile, coverLetterFile, ...otherFiles].filter(Boolean).length - failures.length,
+        failures,
+      };
+    },
+    onSuccess: ({ saved, uploadedCount, failures }) => {
+      setSavedId(saved.id);
+      setSavedDocumentCount(uploadedCount);
+      setUploadWarning(failures.length ? failures.join(" | ") : null);
       queryClient.invalidateQueries({ queryKey: ["jats-applications"] });
+      queryClient.invalidateQueries({ queryKey: ["jats-application", saved.id] });
       queryClient.invalidateQueries({ queryKey: ["analytics"] });
     },
   });
@@ -153,10 +181,18 @@ export function LogApplicationPage() {
     extractMutation.mutate();
   };
 
+  const resetDocumentInputs = () => {
+    setResumeFile(null);
+    setCoverLetterFile(null);
+    setOtherFiles([]);
+    setFileInputKey((key) => key + 1);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!company.trim() || !roleTitle.trim()) return;
     if (dupWarning && !dupConfirmed) return; // block until user explicitly confirms
+    setUploadWarning(null);
     logMutation.mutate({
       company: company.trim(),
       role_title: roleTitle.trim(),
@@ -169,7 +205,7 @@ export function LogApplicationPage() {
       salary_min: salaryMin ? parseInt(salaryMin, 10) : null,
       salary_max: salaryMax ? parseInt(salaryMax, 10) : null,
       currency,
-      industry: industry === "Other" ? (customIndustry.trim() || "Other") : industry || null,
+      industry: industry.trim() || null,
       seniority: seniority || null,
       employment_type: employmentType || null,
       description_raw: jobDescription,
@@ -193,6 +229,16 @@ export function LogApplicationPage() {
           <p className="muted" style={{ marginBottom: 24 }}>
             {roleTitle} at {company} has been saved to your tracker.
           </p>
+          {savedDocumentCount > 0 && (
+            <p className="muted" style={{ marginBottom: 12 }}>
+              {savedDocumentCount} document{savedDocumentCount !== 1 ? "s" : ""} attached.
+            </p>
+          )}
+          {uploadWarning && (
+            <p className="text-red" style={{ marginBottom: 24, fontSize: "0.88rem" }}>
+              Application saved, but some uploads failed: {uploadWarning}
+            </p>
+          )}
           <div className="button-row" style={{ justifyContent: "center" }}>
             <button className="btn btn-accent" onClick={() => navigate("/my-applications")}>
               View All Applications
@@ -201,6 +247,8 @@ export function LogApplicationPage() {
               className="btn"
               onClick={() => {
                 setSavedId(null);
+                setSavedDocumentCount(0);
+                setUploadWarning(null);
                 setCompany(""); setRoleTitle(""); setJobDescription("");
                 setLocationCity(""); setLocationCountry("Australia"); setRemoteType("");
                 setSalaryMin(""); setSalaryMax(""); setIndustry("");
@@ -208,7 +256,8 @@ export function LogApplicationPage() {
                 setRequiredSkills(""); setPreferredSkills("");
                 setPlatform("LinkedIn"); setDateApplied(today()); setStatus("applied");
                 setJobUrl(""); setContactName(""); setContactEmail("");
-                setCustomIndustry(""); setFollowUpDate(""); setFitScore(""); setDupWarning(null);
+                setFollowUpDate(""); setFitScore(""); setDupWarning(null); setDupConfirmed(false);
+                resetDocumentInputs();
                 setShowExtract(true);
               }}
             >
@@ -383,18 +432,11 @@ export function LogApplicationPage() {
             <div className="form-row">
               <label>
                 Industry
-                <select value={industry} onChange={(e) => { setIndustry(e.target.value); setCustomIndustry(""); }}>
-                  <option value="">— Not specified</option>
-                  {INDUSTRIES.map((i) => <option key={i} value={i}>{i}</option>)}
-                </select>
-                {industry === "Other" && (
-                  <input
-                    value={customIndustry}
-                    onChange={(e) => setCustomIndustry(e.target.value)}
-                    placeholder="Specify industry (optional)..."
-                    style={{ marginTop: 4 }}
-                  />
-                )}
+                <input
+                  value={industry}
+                  onChange={(e) => setIndustry(e.target.value)}
+                  placeholder="Government, Education, Climate Tech..."
+                />
               </label>
               <label>
                 Seniority
@@ -504,6 +546,47 @@ export function LogApplicationPage() {
               <textarea value={notes} onChange={(e) => setNotes(e.target.value)}
                 placeholder="Any notes about this application..." rows={3} />
             </label>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <h4 style={{ margin: 0 }}>Submitted Documents</h4>
+              <label>
+                Resume File
+                <input
+                  key={`resume-${fileInputKey}`}
+                  type="file"
+                  accept={DOCUMENT_ACCEPT}
+                  onChange={(e) => setResumeFile(e.target.files?.[0] ?? null)}
+                />
+                <span className="muted" style={{ fontSize: "0.8rem" }}>
+                  {resumeFile ? resumeFile.name : "PDF, DOC, DOCX, or TXT"}
+                </span>
+              </label>
+              <label>
+                Cover Letter File
+                <input
+                  key={`cover-${fileInputKey}`}
+                  type="file"
+                  accept={DOCUMENT_ACCEPT}
+                  onChange={(e) => setCoverLetterFile(e.target.files?.[0] ?? null)}
+                />
+                <span className="muted" style={{ fontSize: "0.8rem" }}>
+                  {coverLetterFile ? coverLetterFile.name : "Optional attachment for the submitted cover letter"}
+                </span>
+              </label>
+              <label>
+                Other Supporting Documents
+                <input
+                  key={`other-${fileInputKey}`}
+                  type="file"
+                  accept={DOCUMENT_ACCEPT}
+                  multiple
+                  onChange={(e) => setOtherFiles(Array.from(e.target.files ?? []))}
+                />
+                <span className="muted" style={{ fontSize: "0.8rem" }}>
+                  {formatSelectedFiles(otherFiles)}
+                </span>
+              </label>
+            </div>
 
             {dupWarning && (
               <div style={{

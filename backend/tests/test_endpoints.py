@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 
+from app.core.config import get_settings
 from app.main import app
 
 client = TestClient(app)
@@ -9,6 +10,16 @@ SAMPLE_CV = (
     "Skilled in FastAPI, SQL, Docker, AWS, machine learning, and TensorFlow. "
     "Built production ML pipelines and scalable backend services."
 )
+
+
+def auth_headers() -> dict[str, str]:
+    settings = get_settings()
+    response = client.post(
+        "/api/v1/auth/login",
+        json={"username": settings.app_username, "password": settings.app_password},
+    )
+    assert response.status_code == 200
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
 def test_candidate_ingest() -> None:
@@ -143,3 +154,59 @@ def test_application_stats() -> None:
     data = response.json()
     assert "total" in data
     assert "interview_rate" in data
+
+
+def test_jats_application_documents_and_free_text_industry() -> None:
+    headers = auth_headers()
+    create_response = client.post(
+        "/api/v1/jats/applications",
+        headers=headers,
+        json={
+            "company": "Docs Co",
+            "role_title": "Policy Writer",
+            "platform": "Direct",
+            "date_applied": "2026-04-23",
+            "status": "applied",
+            "industry": "Public Sector Transformation",
+            "notes": "Tracking submitted documents",
+        },
+    )
+    assert create_response.status_code == 200
+    created = create_response.json()
+    app_id = created["id"]
+    assert created["industry"] == "Public Sector Transformation"
+    assert created["document_count"] == 0
+
+    upload_response = client.post(
+        f"/api/v1/jats/applications/{app_id}/documents",
+        headers=headers,
+        data={"category": "resume"},
+        files={"file": ("resume.doc", b"resume bytes", "application/msword")},
+    )
+    assert upload_response.status_code == 200
+    document = upload_response.json()
+    assert document["category"] == "resume"
+    assert document["filename"] == "resume.doc"
+
+    detail_response = client.get(f"/api/v1/jats/applications/{app_id}", headers=headers)
+    assert detail_response.status_code == 200
+    detail = detail_response.json()
+    assert detail["document_count"] == 1
+    assert detail["documents"][0]["filename"] == "resume.doc"
+    assert detail["industry"] == "Public Sector Transformation"
+
+    download_response = client.get(
+        f"/api/v1/jats/applications/{app_id}/documents/{document['id']}/download",
+        headers=headers,
+    )
+    assert download_response.status_code == 200
+    assert download_response.content == b"resume bytes"
+
+    delete_doc_response = client.delete(
+        f"/api/v1/jats/applications/{app_id}/documents/{document['id']}",
+        headers=headers,
+    )
+    assert delete_doc_response.status_code == 200
+
+    delete_app_response = client.delete(f"/api/v1/jats/applications/{app_id}", headers=headers)
+    assert delete_app_response.status_code == 200

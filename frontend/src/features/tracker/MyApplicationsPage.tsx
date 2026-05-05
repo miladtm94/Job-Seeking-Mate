@@ -3,15 +3,19 @@ import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   addJATSEvent,
+  deleteJATSDocument,
   deleteJATSEvent,
   deleteJATSApplication,
+  fetchJATSDocumentFile,
   fetchJATSApplication,
   fetchJATSApplications,
+  uploadJATSDocument,
   updateJATSEvent,
   updateJATSApplication,
 } from "../../api/client";
 import type {
   JATSApplicationDetail,
+  JATSDocument,
   JATSApplicationSummary,
   JATSEvent,
 } from "../../api/client";
@@ -22,19 +26,14 @@ const REMOTE_TYPES = ["remote", "hybrid", "onsite"];
 const SENIORITY_LEVELS = ["junior", "mid", "senior", "staff", "principal"];
 const EMPLOYMENT_TYPES = ["fulltime", "parttime", "contract", "casual"];
 const STATUSES = ["applied", "saved", "interview", "offer", "rejected", "withdrawn"];
-const INDUSTRIES = [
-  "DigiTech", "FinTech", "Cybersecurity", "Healthcare/MedTech",
-  "E-commerce", "Consulting", "Gaming", "Telecommunications", "Other",
-];
-// Industries stored as canonical keys; anything else is treated as custom "Other"
-const CANONICAL_INDUSTRIES = new Set(INDUSTRIES.filter((i) => i !== "Other"));
+const DOCUMENT_ACCEPT = ".pdf,.txt,.doc,.docx";
 
 interface EditDraft {
   company: string; role_title: string; platform: string;
   date_applied: string; status: string;
   location_city: string; location_country: string; remote_type: string;
   salary_min: string; salary_max: string; currency: string;
-  industry: string; custom_industry: string; seniority: string; employment_type: string;
+  industry: string; seniority: string; employment_type: string;
   notes: string; job_url: string;
   contact_name: string; contact_email: string;
   follow_up_date: string; fit_score: string;
@@ -99,6 +98,36 @@ function salaryDisplay(app: JATSApplicationSummary) {
 
 function formatEventType(eventType: string) {
   return eventType.replace(/_/g, " ");
+}
+
+function formatFileSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function documentLabel(category: JATSDocument["category"]) {
+  if (category === "cover_letter") return "Cover letter";
+  if (category === "resume") return "Resume";
+  return "Other";
+}
+
+function canPreviewDocument(mimeType: string | null, filename: string) {
+  if (mimeType === "application/pdf") return true;
+  if (mimeType?.startsWith("text/")) return true;
+  if (mimeType?.startsWith("image/")) return true;
+
+  const lower = filename.toLowerCase();
+  return lower.endsWith(".pdf") || lower.endsWith(".txt") || lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".gif");
+}
+
+function triggerBrowserDownload(url: string, filename: string) {
+  const link = window.document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  window.document.body.appendChild(link);
+  link.click();
+  link.remove();
 }
 
 function EventEditor({
@@ -230,6 +259,74 @@ function EventTimeline({
   );
 }
 
+function DocumentList({
+  documents,
+  onOpen,
+  onDelete,
+  openingDocumentId,
+  isDeleting,
+}: {
+  documents: JATSDocument[];
+  onOpen: (file: JATSDocument) => void;
+  onDelete: (document: JATSDocument) => void;
+  openingDocumentId: number | null;
+  isDeleting: boolean;
+}) {
+  if (!documents.length) {
+    return <p className="muted" style={{ fontSize: "0.85rem" }}>No documents attached yet.</p>;
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {documents.map((document) => (
+        <div
+          key={document.id}
+          style={{
+            border: "1px solid var(--border)",
+            borderRadius: 8,
+            padding: "10px 12px",
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 12,
+            flexWrap: "wrap",
+            alignItems: "center",
+          }}
+        >
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <span className="tag tag-info">{documentLabel(document.category)}</span>
+              <strong style={{ wordBreak: "break-word" }}>{document.filename}</strong>
+            </div>
+            <div className="muted" style={{ fontSize: "0.8rem", marginTop: 4 }}>
+              {formatFileSize(document.file_size)}
+              {document.mime_type ? ` • ${document.mime_type}` : ""}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <button
+              className="btn-small"
+              onClick={() => onOpen(document)}
+              disabled={openingDocumentId === document.id}
+            >
+              {openingDocumentId === document.id
+                ? "Opening..."
+                : canPreviewDocument(document.mime_type, document.filename) ? "Open" : "Download"}
+            </button>
+            <button
+              className="btn-small"
+              style={{ color: "var(--red)", borderColor: "var(--red)" }}
+              onClick={() => onDelete(document)}
+              disabled={isDeleting}
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function MyApplicationsPage() {
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
@@ -253,6 +350,8 @@ export function MyApplicationsPage() {
     notes: "",
   });
   const [editingEventId, setEditingEventId] = useState<number | null>(null);
+  const [documentError, setDocumentError] = useState<string | null>(null);
+  const [openingDocumentId, setOpeningDocumentId] = useState<number | null>(null);
 
   const startEdit = (d: typeof detail) => {
     if (!d) return;
@@ -268,8 +367,7 @@ export function MyApplicationsPage() {
       salary_min: d.salary_min ? String(d.salary_min) : "",
       salary_max: d.salary_max ? String(d.salary_max) : "",
       currency: d.currency,
-      industry: d.industry && !CANONICAL_INDUSTRIES.has(d.industry) ? "Other" : (d.industry ?? ""),
-      custom_industry: d.industry && !CANONICAL_INDUSTRIES.has(d.industry) ? d.industry : "",
+      industry: d.industry ?? "",
       seniority: d.seniority ?? "",
       employment_type: d.employment_type ?? "",
       notes: d.notes,
@@ -388,9 +486,7 @@ export function MyApplicationsPage() {
         salary_min: editDraft.salary_min ? parseInt(editDraft.salary_min, 10) : null,
         salary_max: editDraft.salary_max ? parseInt(editDraft.salary_max, 10) : null,
         currency: editDraft.currency,
-        industry: editDraft.industry === "Other"
-          ? (editDraft.custom_industry.trim() || "Other")
-          : editDraft.industry || null,
+        industry: editDraft.industry.trim() || null,
         seniority: editDraft.seniority || null,
         employment_type: editDraft.employment_type || null,
         notes: editDraft.notes,
@@ -412,6 +508,30 @@ export function MyApplicationsPage() {
     },
   });
 
+  const uploadDocumentMutation = useMutation({
+    mutationFn: ({ appId, category, file }: { appId: string; category: "resume" | "cover_letter" | "other"; file: File }) =>
+      uploadJATSDocument(appId, { category, file }),
+    onSuccess: () => {
+      setDocumentError(null);
+      refreshTrackerQueries();
+    },
+    onError: (error: Error) => {
+      setDocumentError(error.message);
+    },
+  });
+
+  const deleteDocumentMutation = useMutation({
+    mutationFn: ({ appId, documentId }: { appId: string; documentId: number }) =>
+      deleteJATSDocument(appId, documentId),
+    onSuccess: () => {
+      setDocumentError(null);
+      refreshTrackerQueries();
+    },
+    onError: (error: Error) => {
+      setDocumentError(error.message);
+    },
+  });
+
   const startEventEdit = (event: JATSEvent) => {
     setAddingEvent(false);
     setEditingEventId(event.id);
@@ -425,6 +545,56 @@ export function MyApplicationsPage() {
   const cancelEventEdit = () => {
     setEditingEventId(null);
     resetEventDraft();
+  };
+
+  const handleDocumentSelection = async (
+    category: "resume" | "cover_letter" | "other",
+    files: FileList | null
+  ) => {
+    if (!selectedId || !files?.length) return;
+    setDocumentError(null);
+    for (const file of Array.from(files)) {
+      try {
+        await uploadDocumentMutation.mutateAsync({ appId: selectedId, category, file });
+      } catch {
+        // Error state is already handled by the mutation; continue with any remaining files.
+      }
+    }
+  };
+
+  const handleOpenDocument = async (file: JATSDocument) => {
+    if (!selectedId) return;
+
+    const shouldPreview = canPreviewDocument(file.mime_type, file.filename);
+    const previewWindow = shouldPreview ? window.open("", "_blank") : null;
+
+    setDocumentError(null);
+    setOpeningDocumentId(file.id);
+
+    try {
+      const { blob, filename } = await fetchJATSDocumentFile(selectedId, file.id);
+      const objectUrl = URL.createObjectURL(blob);
+      const resolvedFilename = filename ?? file.filename;
+
+      if (shouldPreview) {
+        if (previewWindow) {
+          previewWindow.location.href = objectUrl;
+        } else {
+          triggerBrowserDownload(objectUrl, resolvedFilename);
+        }
+      } else {
+        triggerBrowserDownload(objectUrl, resolvedFilename);
+      }
+
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    } catch (error) {
+      if (previewWindow && !previewWindow.closed) {
+        previewWindow.close();
+      }
+      setDocumentError(error instanceof Error ? error.message : "Unable to open document.");
+    } finally {
+      setOpeningDocumentId(null);
+    }
   };
 
   const apps = appsQuery.data?.applications ?? [];
@@ -531,6 +701,7 @@ export function MyApplicationsPage() {
                     setEditDraft(null);
                     setAddingEvent(false);
                     setEditingEventId(null);
+                    setDocumentError(null);
                     resetEventDraft();
                   }}
                   style={{
@@ -571,6 +742,11 @@ export function MyApplicationsPage() {
                             color: fitScoreColor(app.fit_score), border: `1px solid ${fitScoreColor(app.fit_score)}44`,
                           }}>
                             Fit {app.fit_score}
+                          </span>
+                        )}
+                        {app.document_count > 0 && (
+                          <span className="tag tag-neutral">
+                            {app.document_count} doc{app.document_count !== 1 ? "s" : ""}
                           </span>
                         )}
                       </div>
@@ -655,14 +831,7 @@ export function MyApplicationsPage() {
                   {/* Classification */}
                   <div className="form-row">
                     <label>Industry
-                      <select value={editDraft.industry} onChange={(e) => setEditDraft((d) => d ? { ...d, industry: e.target.value, custom_industry: "" } : d)}>
-                        <option value="">— Not specified</option>
-                        {INDUSTRIES.map((i) => <option key={i} value={i}>{i}</option>)}
-                      </select>
-                      {editDraft.industry === "Other" && (
-                        <input value={editDraft.custom_industry} onChange={set("custom_industry")}
-                          placeholder="Specify industry (optional)..." style={{ marginTop: 4 }} />
-                      )}
+                      <input value={editDraft.industry} onChange={set("industry")} placeholder="Government, Education, Climate Tech..." />
                     </label>
                     <label>Seniority
                       <select value={editDraft.seniority} onChange={set("seniority")}>
@@ -830,6 +999,67 @@ export function MyApplicationsPage() {
                     <strong>{detail.resume_used}</strong>
                   </div>
                 )}
+
+                <div style={{ marginTop: 16 }}>
+                  <h4>Documents</h4>
+                  <DocumentList
+                    documents={detail.documents}
+                    onOpen={(file) => {
+                      void handleOpenDocument(file);
+                    }}
+                    onDelete={(document) => {
+                      if (confirm(`Delete ${document.filename}?`)) {
+                        deleteDocumentMutation.mutate({ appId: detail.id, documentId: document.id });
+                      }
+                    }}
+                    openingDocumentId={openingDocumentId}
+                    isDeleting={deleteDocumentMutation.isPending}
+                  />
+                  {documentError && (
+                    <p style={{ color: "var(--red)", fontSize: "0.85rem", marginTop: 8 }}>
+                      {documentError}
+                    </p>
+                  )}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}>
+                    <label>
+                      Replace Resume
+                      <input
+                        type="file"
+                        accept={DOCUMENT_ACCEPT}
+                        disabled={uploadDocumentMutation.isPending}
+                        onChange={(e) => {
+                          void handleDocumentSelection("resume", e.target.files).catch(() => {});
+                          e.target.value = "";
+                        }}
+                      />
+                    </label>
+                    <label>
+                      Replace Cover Letter
+                      <input
+                        type="file"
+                        accept={DOCUMENT_ACCEPT}
+                        disabled={uploadDocumentMutation.isPending}
+                        onChange={(e) => {
+                          void handleDocumentSelection("cover_letter", e.target.files).catch(() => {});
+                          e.target.value = "";
+                        }}
+                      />
+                    </label>
+                    <label>
+                      Add Supporting Documents
+                      <input
+                        type="file"
+                        accept={DOCUMENT_ACCEPT}
+                        multiple
+                        disabled={uploadDocumentMutation.isPending}
+                        onChange={(e) => {
+                          void handleDocumentSelection("other", e.target.files).catch(() => {});
+                          e.target.value = "";
+                        }}
+                      />
+                    </label>
+                  </div>
+                </div>
 
                 {/* Notes */}
                 {detail.notes && (

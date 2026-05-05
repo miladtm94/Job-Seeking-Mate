@@ -1,10 +1,12 @@
 import json
 import logging
+import mimetypes
 import re
 import uuid
 from datetime import date, datetime
 from pathlib import Path
 
+from fastapi import HTTPException, UploadFile
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -12,6 +14,7 @@ from app.core.ai_client import ai_complete
 from app.db import jats_models  # noqa: F401 — registers ORM models
 from app.db.jats_db import JATSBase, engine
 from app.db.jats_models import (
+    ApplicationDocument,
     ApplicationEntry,
     ApplicationEvent,
     ApplicationMaterial,
@@ -22,6 +25,7 @@ from app.schemas.jats import (
     ApplicationDetail,
     ApplicationListResponse,
     ApplicationSummary,
+    DocumentResponse,
     EventResponse,
     ExtractedJobData,
     LogApplicationRequest,
@@ -58,6 +62,9 @@ _migrate_columns()
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _LOGS_DIR = _PROJECT_ROOT / "data" / "logs"
+_DOCUMENTS_DIR = _PROJECT_ROOT / "data" / "jats_documents"
+_DOCUMENT_CATEGORIES = {"resume", "cover_letter", "other"}
+_ALLOWED_DOCUMENT_SUFFIXES = {".pdf", ".txt", ".doc", ".docx"}
 
 VALID_STATUSES = {"applied", "interview", "offer", "rejected", "withdrawn", "saved"}
 STATUS_EVENT_TO_STATUS = {
@@ -431,6 +438,100 @@ def get_application(db: Session, app_id: str) -> ApplicationDetail | None:
     return _to_detail(entry)
 
 
+async def upload_document(
+    db: Session, app_id: str, category: str, file: UploadFile
+) -> DocumentResponse | None:
+    entry = db.query(ApplicationEntry).filter(ApplicationEntry.id == app_id).first()
+    if not entry:
+        return None
+
+    category_key = category.strip().lower()
+    if category_key not in _DOCUMENT_CATEGORIES:
+        raise HTTPException(status_code=400, detail="Invalid document category")
+
+    filename = _sanitize_filename(file.filename or "")
+    suffix = Path(filename).suffix.lower()
+    if suffix not in _ALLOWED_DOCUMENT_SUFFIXES:
+        raise HTTPException(
+            status_code=415,
+            detail="Unsupported file type. Upload a .pdf, .txt, .doc, or .docx file.",
+        )
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Uploaded document is empty")
+
+    app_dir = _DOCUMENTS_DIR / app_id
+    app_dir.mkdir(parents=True, exist_ok=True)
+    stored_path = app_dir / f"{uuid.uuid4().hex}_{filename}"
+    stored_path.write_bytes(content)
+
+    if category_key in {"resume", "cover_letter"}:
+        existing_docs = (
+            db.query(ApplicationDocument)
+            .filter(
+                ApplicationDocument.application_id == app_id,
+                ApplicationDocument.category == category_key,
+            )
+            .all()
+        )
+        for doc in existing_docs:
+            _delete_stored_file(doc.stored_path)
+            db.delete(doc)
+        db.flush()
+
+    document = ApplicationDocument(
+        application_id=app_id,
+        category=category_key,
+        original_filename=filename,
+        stored_path=str(stored_path),
+        mime_type=file.content_type or mimetypes.guess_type(filename)[0],
+        file_size=len(content),
+    )
+    db.add(document)
+    db.commit()
+    db.refresh(document)
+    return _document_to_response(document)
+
+
+def get_document_download(
+    db: Session, app_id: str, document_id: int
+) -> tuple[str, str, str | None] | None:
+    document = (
+        db.query(ApplicationDocument)
+        .filter(
+            ApplicationDocument.id == document_id,
+            ApplicationDocument.application_id == app_id,
+        )
+        .first()
+    )
+    if not document:
+        return None
+
+    path = Path(document.stored_path)
+    if not path.exists():
+        return None
+    return str(path), document.original_filename, document.mime_type
+
+
+def delete_document(db: Session, app_id: str, document_id: int) -> bool:
+    document = (
+        db.query(ApplicationDocument)
+        .filter(
+            ApplicationDocument.id == document_id,
+            ApplicationDocument.application_id == app_id,
+        )
+        .first()
+    )
+    if not document:
+        return False
+
+    _delete_stored_file(document.stored_path)
+    db.delete(document)
+    db.commit()
+    return True
+
+
 def update_application(
     db: Session, app_id: str, payload: UpdateApplicationRequest
 ) -> ApplicationDetail | None:
@@ -566,6 +667,8 @@ def delete_application(db: Session, app_id: str) -> bool:
     entry = db.query(ApplicationEntry).filter(ApplicationEntry.id == app_id).first()
     if not entry:
         return False
+    for document in entry.documents:
+        _delete_stored_file(document.stored_path)
     db.delete(entry)
     db.commit()
     return True
@@ -617,6 +720,7 @@ def _to_summary(entry: ApplicationEntry) -> ApplicationSummary:
         contact_name=entry.contact_name,
         follow_up_date=entry.follow_up_date,
         fit_score=entry.fit_score,
+        document_count=len(entry.documents),
     )
 
 
@@ -624,6 +728,7 @@ def _to_detail(entry: ApplicationEntry) -> ApplicationDetail:
     skills = [SkillResponse(skill_name=s.skill_name, skill_type=s.skill_type) for s in entry.skills]
     events = [_event_to_response(e) for e in sorted(entry.events, key=lambda x: x.event_date)]
     material = entry.materials[0] if entry.materials else None
+    documents = sorted(entry.documents, key=lambda x: (x.category, x.created_at or datetime.min))
     return ApplicationDetail(
         id=entry.id,
         company=entry.company,
@@ -655,6 +760,8 @@ def _to_detail(entry: ApplicationEntry) -> ApplicationDetail:
         contact_linkedin=entry.contact_linkedin,
         follow_up_date=entry.follow_up_date,
         fit_score=entry.fit_score,
+        document_count=len(entry.documents),
+        documents=[_document_to_response(doc) for doc in documents],
     )
 
 
@@ -665,6 +772,19 @@ def _event_to_response(event: ApplicationEvent) -> EventResponse:
         event_type=event.event_type,
         event_date=event.event_date,
         notes=event.notes,
+    )
+
+
+def _document_to_response(document: ApplicationDocument) -> DocumentResponse:
+    return DocumentResponse(
+        id=document.id,
+        application_id=document.application_id,
+        category=document.category,
+        filename=document.original_filename,
+        mime_type=document.mime_type,
+        file_size=document.file_size,
+        created_at=document.created_at.isoformat() if document.created_at else "",
+        download_url=f"/jats/applications/{document.application_id}/documents/{document.id}/download",
     )
 
 
@@ -696,3 +816,21 @@ def _write_json_backup(app_id: str, payload: LogApplicationRequest) -> None:
         )
     except Exception:
         logger.warning("Could not write JSON backup for %s", app_id)
+
+
+def _sanitize_filename(filename: str) -> str:
+    safe_name = Path(filename).name.strip() or "document"
+    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", safe_name)
+    return safe_name[:200]
+
+
+def _delete_stored_file(path_str: str) -> None:
+    try:
+        path = Path(path_str)
+        if path.exists():
+            path.unlink()
+        parent = path.parent
+        if parent != _DOCUMENTS_DIR and parent.exists() and not any(parent.iterdir()):
+            parent.rmdir()
+    except Exception:
+        logger.warning("Could not delete stored document %s", path_str)

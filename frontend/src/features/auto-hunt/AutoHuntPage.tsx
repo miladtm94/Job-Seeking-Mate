@@ -985,7 +985,7 @@ export function AutoHuntPage() {
           {/* Seek / Indeed manual login notice */}
           {(platform === "seek" || platform === "indeed") && (
             <section className="panel" style={{ background: "var(--tag-blue-bg)", borderColor: "rgba(96,165,250,0.2)" }}>
-              <h3 style={{ marginBottom: 6, color: "var(--blue)" }}>Manual Login for {meta.label}</h3>
+              <h3 style={{ marginBottom: 6, color: "var(--ink)" }}>Manual Login for {meta.label}</h3>
               <p className="muted" style={{ fontSize: "0.84rem", lineHeight: 1.7, margin: 0 }}>
                 When you click <strong style={{ color: "var(--ink)" }}>Start</strong>, a browser window opens
                 at the {meta.label} login page. Sign in yourself (including 2FA), then click{" "}

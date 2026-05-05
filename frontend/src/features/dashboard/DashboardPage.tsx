@@ -227,11 +227,11 @@ export function DashboardPage() {
                   display: "flex", justifyContent: "space-between", alignItems: "center",
                   padding: "8px 12px", borderRadius: "var(--radius-sm)", marginBottom: 4,
                   background: "var(--tag-red-bg)", border: "1px solid rgba(248,113,113,0.15)",
-                  textDecoration: "none",
+                  textDecoration: "none", color: "var(--ink)",
                 }}>
                   <div>
                     <span style={{ fontWeight: 600, fontSize: "0.88rem" }}>{app.role_title}</span>
-                    <span className="muted" style={{ fontSize: "0.8rem" }}> · {app.company}</span>
+                    <span style={{ fontSize: "0.8rem", color: "var(--ink)" }}> · {app.company}</span>
                   </div>
                   <span style={{ fontSize: "0.76rem", color: "var(--red)" }}>Due {app.follow_up_date}</span>
                 </Link>
@@ -247,13 +247,13 @@ export function DashboardPage() {
                   display: "flex", justifyContent: "space-between", alignItems: "center",
                   padding: "8px 12px", borderRadius: "var(--radius-sm)", marginBottom: 4,
                   background: "var(--bg-card)", border: "1px solid var(--border)",
-                  textDecoration: "none",
+                  textDecoration: "none", color: "var(--ink)",
                 }}>
                   <div>
                     <span style={{ fontWeight: 600, fontSize: "0.88rem" }}>{app.role_title}</span>
-                    <span className="muted" style={{ fontSize: "0.8rem" }}> · {app.company}</span>
+                    <span style={{ fontSize: "0.8rem", color: "var(--ink)" }}> · {app.company}</span>
                   </div>
-                  <span style={{ fontSize: "0.76rem", color: "var(--muted)" }}>Due {app.follow_up_date}</span>
+                  <span style={{ fontSize: "0.76rem", color: "var(--ink)" }}>Due {app.follow_up_date}</span>
                 </Link>
               ))}
             </div>

@@ -42,6 +42,9 @@ class ApplicationEntry(JATSBase):
     materials: Mapped[list["ApplicationMaterial"]] = relationship(
         "ApplicationMaterial", back_populates="application", cascade="all, delete-orphan"
     )
+    documents: Mapped[list["ApplicationDocument"]] = relationship(
+        "ApplicationDocument", back_populates="application", cascade="all, delete-orphan"
+    )
     events: Mapped[list["ApplicationEvent"]] = relationship(
         "ApplicationEvent", back_populates="application", cascade="all, delete-orphan"
     )
@@ -91,4 +94,25 @@ class ApplicationEvent(JATSBase):
 
     application: Mapped["ApplicationEntry"] = relationship(
         "ApplicationEntry", back_populates="events"
+    )
+
+
+class ApplicationDocument(JATSBase):
+    __tablename__ = "jats_documents"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    application_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("jats_applications.id"), nullable=False
+    )
+    category: Mapped[str] = mapped_column(String(32), nullable=False, default="other")
+    original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    stored_path: Mapped[str] = mapped_column(Text, nullable=False)
+    mime_type: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    file_size: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.now()
+    )
+
+    application: Mapped["ApplicationEntry"] = relationship(
+        "ApplicationEntry", back_populates="documents"
     )

@@ -1,4 +1,9 @@
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000/api/v1";
+const defaultApiBase =
+  typeof window !== "undefined"
+    ? `${window.location.protocol}//${window.location.hostname}:8000/api/v1`
+    : "http://localhost:8000/api/v1";
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? defaultApiBase;
 
 const TOKEN_KEY = "jsm_token";
 
@@ -6,17 +11,17 @@ function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
 }
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
+function buildRequestHeaders(options?: RequestInit) {
   const token = getToken();
   const isFormData = options?.body instanceof FormData;
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers: {
-      ...(isFormData ? {} : { "Content-Type": "application/json" }),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options?.headers,
-    },
-  });
+  return {
+    ...(isFormData ? {} : { "Content-Type": "application/json" }),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...options?.headers,
+  };
+}
+
+function handleUnauthorized(response: Response) {
   if (response.status === 401) {
     if (window.location.pathname !== "/login") {
       localStorage.removeItem(TOKEN_KEY);
@@ -24,11 +29,61 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     }
     throw new Error("Unauthorized");
   }
+}
+
+function parseFilename(contentDisposition: string | null) {
+  if (!contentDisposition) return null;
+
+  const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch {
+      return utf8Match[1];
+    }
+  }
+
+  const quotedMatch = contentDisposition.match(/filename="([^"]+)"/i);
+  if (quotedMatch?.[1]) return quotedMatch[1];
+
+  const plainMatch = contentDisposition.match(/filename=([^;]+)/i);
+  return plainMatch?.[1]?.trim() ?? null;
+}
+
+async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: buildRequestHeaders(options),
+  });
+  handleUnauthorized(response);
   if (!response.ok) {
     const error = await response.text();
     throw new Error(error || `Request failed: ${response.status}`);
   }
   return response.json() as Promise<T>;
+}
+
+async function requestBlob(path: string, options?: RequestInit): Promise<{
+  blob: Blob;
+  filename: string | null;
+}> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: buildRequestHeaders(options),
+  });
+  handleUnauthorized(response);
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(error || `Request failed: ${response.status}`);
+  }
+  return {
+    blob: await response.blob(),
+    filename: parseFilename(response.headers.get("Content-Disposition")),
+  };
+}
+
+export function buildApiUrl(path: string) {
+  return `${API_BASE}${path}`;
 }
 
 // Auth
@@ -407,6 +462,17 @@ export interface JATSEvent {
   notes: string;
 }
 
+export interface JATSDocument {
+  id: number;
+  application_id: string;
+  category: "resume" | "cover_letter" | "other";
+  filename: string;
+  mime_type: string | null;
+  file_size: number;
+  created_at: string;
+  download_url: string;
+}
+
 export interface JATSApplicationSummary {
   id: string;
   company: string;
@@ -429,6 +495,7 @@ export interface JATSApplicationSummary {
   contact_name: string | null;
   follow_up_date: string | null;
   fit_score: number | null;
+  document_count: number;
 }
 
 export interface JATSApplicationDetail extends JATSApplicationSummary {
@@ -440,6 +507,7 @@ export interface JATSApplicationDetail extends JATSApplicationSummary {
   cover_letter: string;
   answers_text: string;
   contact_email: string | null;
+  documents: JATSDocument[];
 }
 
 export interface JATSListResponse {
@@ -478,6 +546,29 @@ export function fetchJATSApplications(filters?: {
 
 export function fetchJATSApplication(id: string) {
   return request<JATSApplicationDetail>(`/jats/applications/${id}`);
+}
+
+export function uploadJATSDocument(
+  id: string,
+  data: { category: "resume" | "cover_letter" | "other"; file: File }
+) {
+  const form = new FormData();
+  form.append("category", data.category);
+  form.append("file", data.file);
+  return request<JATSDocument>(`/jats/applications/${id}/documents`, {
+    method: "POST",
+    body: form,
+  });
+}
+
+export function deleteJATSDocument(id: string, documentId: number) {
+  return request<{ deleted: number }>(`/jats/applications/${id}/documents/${documentId}`, {
+    method: "DELETE",
+  });
+}
+
+export function fetchJATSDocumentFile(id: string, documentId: number) {
+  return requestBlob(`/jats/applications/${id}/documents/${documentId}/download`);
 }
 
 export function updateJATSApplication(

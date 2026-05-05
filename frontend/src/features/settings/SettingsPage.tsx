@@ -259,7 +259,7 @@ export function SettingsPage() {
             background: "var(--tag-blue-bg)",
             border: "1px solid rgba(96,165,250,0.2)",
             fontSize: "0.84rem",
-            color: "var(--blue)",
+            color: "var(--ink)",
             marginBottom: 14,
           }}>
             <strong>Setup:</strong> {selectedProviderInfo.setupNote}
