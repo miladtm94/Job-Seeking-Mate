@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+
+if grep -Eiq '^(co-authored-by|signed-off-by): .*claude|claude sonnet|noreply@anthropic\.com' "$1"; then
+  echo "Commit blocked: remove Claude attribution from the commit message." >&2
+  exit 1
+fi

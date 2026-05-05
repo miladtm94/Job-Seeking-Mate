@@ -1,0 +1,30 @@
+#!/bin/sh
+set -eu
+
+while read local_ref local_sha remote_ref remote_sha
+do
+  case "$local_sha" in
+    0000000000000000000000000000000000000000)
+      continue
+      ;;
+  esac
+
+  case "$remote_sha" in
+    0000000000000000000000000000000000000000)
+      if git show-ref --verify --quiet refs/remotes/origin/main; then
+        base="$(git merge-base "$local_sha" origin/main)"
+        range="$base..$local_sha"
+      else
+        range="$local_sha"
+      fi
+      ;;
+    *)
+      range="$remote_sha..$local_sha"
+      ;;
+  esac
+
+  if git log --format=%B "$range" | grep -Eiq '^(co-authored-by|signed-off-by): .*claude|claude sonnet|noreply@anthropic\.com'; then
+    echo "Push blocked: pushed commits contain Claude attribution." >&2
+    exit 1
+  fi
+done

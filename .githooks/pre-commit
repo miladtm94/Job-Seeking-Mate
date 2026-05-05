@@ -1,0 +1,42 @@
+#!/bin/sh
+set -eu
+
+staged_paths="$(git diff --cached --name-only)"
+
+printf '%s\n' "$staged_paths" | while IFS= read -r path
+do
+  case "$path" in
+    "")
+      continue
+      ;;
+    .env|.env.*|*/.env|*/.env.*)
+      case "$path" in
+        .env.example|*/.env.example) ;;
+        *)
+          echo "Commit blocked: environment files must not be committed." >&2
+          exit 1
+          ;;
+      esac
+      ;;
+  esac
+
+  case "$path" in
+    data/.gitkeep|data/logs/.gitkeep|data/resumes/.gitkeep|data/covers/.gitkeep) ;;
+    data/*)
+      echo "Commit blocked: data/ may only contain .gitkeep placeholders." >&2
+      exit 1
+      ;;
+  esac
+
+  case "$path" in
+    *.pdf|*.PDF|*.doc|*.DOC|*.docx|*.DOCX|*.key|*.pem|*.p12|*browser-profiles*|*jats_documents*|*profiles.json|*jats.db)
+      echo "Commit blocked: staged files include private documents, credentials, or runtime data." >&2
+      exit 1
+      ;;
+  esac
+done
+
+if git diff --cached -U0 | grep -Eiq '(sk-[A-Za-z0-9_-]{20,}|AIza[0-9A-Za-z_-]{20,}|BEGIN ((RSA|OPENSSH|EC) )?PRIVATE KEY)'; then
+  echo "Commit blocked: staged diff appears to contain a secret or API key." >&2
+  exit 1
+fi

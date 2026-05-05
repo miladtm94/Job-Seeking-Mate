@@ -12,7 +12,7 @@ How it works
 Supported providers (set AI_PROVIDER in .env):
   gemini    → Google Gemini API (free tier available)
   openai    → OpenAI ChatGPT models
-  anthropic → Anthropic Claude models
+  anthropic → Anthropic models
   lmstudio  → LM Studio local server (OpenAI-compatible, http://localhost:1234/v1)
   ollama    → Ollama local server (http://localhost:11434)
 

@@ -2,7 +2,7 @@
  * Settings page — configure AI provider (including LM Studio), thresholds, etc.
  *
  * AI provider hierarchy:
- *   1. Anthropic Claude  — cloud, best quality, API key required
+ *   1. Anthropic         — cloud provider, API key required
  *   2. OpenAI            — cloud, very capable, API key required
  *   3. Google Gemini     — cloud, free tier available, API key required
  *   4. LM Studio         — LOCAL, 100% free, no API key, runs on your machine
@@ -37,9 +37,9 @@ interface ProviderInfo {
 const PROVIDERS: ProviderInfo[] = [
   {
     id: "anthropic",
-    name: "Claude",
+    name: "Anthropic",
     icon: "🤖",
-    desc: "Anthropic — best at reasoning & writing",
+    desc: "Cloud model provider for reasoning and writing",
     badge: "key",
     badgeLabel: "API Key",
     showModelField: true,
@@ -397,7 +397,7 @@ export function SettingsPage() {
         <div className="settings-section-title">API Key Status</div>
         <div className="panel" style={{ maxWidth: 420 }}>
           {[
-            { label: "Anthropic (Claude)", ok: settings?.has_anthropic },
+            { label: "Anthropic",          ok: settings?.has_anthropic },
             { label: "OpenAI (ChatGPT)",   ok: settings?.has_openai },
             { label: "Google Gemini",      ok: settings?.has_gemini },
           ].map((item) => (

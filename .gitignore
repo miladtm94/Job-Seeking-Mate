@@ -64,19 +64,16 @@ pg_data/
 secrets/
 
 # ── User data — personal tracking data, resumes, logs — NEVER commit ─────────
-# These files live in data/ at runtime but must never reach the repository.
-# The data/ folder structure (with .gitkeep files) IS tracked so new clones
-# have the correct directories ready to use.
-data/jats.db
-data/profiles.json
-data/logs/*
+# Keep only empty placeholder files so fresh clones have the right folders.
+data/**
+!data/
+!data/.gitkeep
+!data/logs/
 !data/logs/.gitkeep
-data/resumes/*
+!data/resumes/
 !data/resumes/.gitkeep
-data/covers/*
+!data/covers/
 !data/covers/.gitkeep
-data/browser-profiles/
-data/user_settings.json
 
 # Backend runtime data (AI settings, SQLite DB)
 backend/data/
